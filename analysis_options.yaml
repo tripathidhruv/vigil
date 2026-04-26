@@ -1,0 +1,18 @@
+# flutter_lints excluded — see pubspec.yaml note on Flutter 3.41.7 SDK pin bug
+
+analyzer:
+  errors:
+    # Flutter 3.41.7 deprecated withOpacity in favour of withValues — suppress globally
+    deprecated_member_use: ignore
+    deprecated_member_use_from_same_package: ignore
+    # Const-constructor hints are style only — not errors
+    prefer_const_constructors: ignore
+    prefer_const_literals_to_create_immutables: ignore
+  exclude:
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"
+
+linter:
+  rules:
+    avoid_print: true
+    use_super_parameters: true
