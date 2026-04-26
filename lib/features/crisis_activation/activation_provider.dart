@@ -1,16 +1,35 @@
+import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:uuid/uuid.dart';
+import '../../services/firebase_service.dart';
+import '../../services/gemini_service.dart';
+import '../../models/incident_model.dart';
+import '../auth/auth_provider.dart';
 
 // ── Models ───────────────────────────────────────────────────────────────────
 
-enum ActivationPhase { idle, analyzing, confirmed }
+enum ActivationPhase { idle, analyzing, confirmed, error }
 
 class PlaybookStep {
   final int step;
   final String action;
   final String owner;
+  final String timeframe;
 
-  const PlaybookStep(this.step, this.action, this.owner);
+  const PlaybookStep({
+    required this.step,
+    required this.action,
+    required this.owner,
+    this.timeframe = '',
+  });
+
+  factory PlaybookStep.fromJson(Map<String, dynamic> json) {
+    return PlaybookStep(
+      step: json['step'] as int? ?? 0,
+      action: json['action'] as String? ?? '',
+      owner: json['owner'] as String? ?? '',
+      timeframe: json['timeframe'] as String? ?? '',
+    );
+  }
 }
 
 class ActivationState {
@@ -21,6 +40,7 @@ class ActivationState {
   final String severity;
   final String incidentId;
   final List<PlaybookStep> playbook;
+  final String? errorMessage;
 
   const ActivationState({
     this.phase = ActivationPhase.idle,
@@ -30,6 +50,7 @@ class ActivationState {
     this.severity = '',
     this.incidentId = '',
     this.playbook = const [],
+    this.errorMessage,
   });
 
   ActivationState copyWith({
@@ -40,6 +61,7 @@ class ActivationState {
     String? severity,
     String? incidentId,
     List<PlaybookStep>? playbook,
+    String? errorMessage,
   }) =>
       ActivationState(
         phase: phase ?? this.phase,
@@ -49,72 +71,107 @@ class ActivationState {
         severity: severity ?? this.severity,
         incidentId: incidentId ?? this.incidentId,
         playbook: playbook ?? this.playbook,
+        errorMessage: errorMessage ?? this.errorMessage,
       );
 }
 
 // ── Notifier ──────────────────────────────────────────────────────────────────
 
 class ActivationNotifier extends StateNotifier<ActivationState> {
-  ActivationNotifier() : super(const ActivationState());
+  final FirebaseService _firebaseService;
+  final GeminiService _geminiService;
+  final Ref _ref;
 
-  static const _uuid = Uuid();
+  ActivationNotifier(this._firebaseService, this._geminiService, this._ref)
+      : super(const ActivationState());
 
   void setType(String type) => state = state.copyWith(incidentType: type);
   void setLocation(String loc) => state = state.copyWith(location: loc);
   void setDescription(String desc) => state = state.copyWith(description: desc);
 
   Future<void> analyzeAndActivate() async {
+    if (state.phase == ActivationPhase.analyzing) return;
     state = state.copyWith(phase: ActivationPhase.analyzing);
-    // Simulate Gemini classification (1 s) + playbook generation (1.5 s)
-    await Future.delayed(const Duration(milliseconds: 1000));
-    final sev = _classifyMock(state.incidentType);
-    await Future.delayed(const Duration(milliseconds: 800));
-    final playbook = _playbookMock(state.incidentType);
-    state = state.copyWith(
-      phase: ActivationPhase.confirmed,
-      severity: sev,
-      incidentId: _uuid.v4().substring(0, 8).toUpperCase(),
-      playbook: playbook,
-    );
+    
+    try {
+      // 1. Classify with Gemini
+      final classificationStr = await _geminiService.classifyIncident(state.description);
+      Map<String, dynamic> classData = {};
+      try {
+        // Strip markdown blocks if any
+        final cleanStr = classificationStr.replaceAll('```json', '').replaceAll('```', '').trim();
+        classData = jsonDecode(cleanStr);
+      } catch (e) {
+        // Fallback
+        classData = {
+          'type': state.incidentType.isNotEmpty ? state.incidentType : 'Other',
+          'severity': 'SEV-3'
+        };
+      }
+
+      final type = classData['type'] as String? ?? state.incidentType;
+      final severityStr = classData['severity'] as String? ?? 'SEV-3';
+      
+      // Parse severity string to int (SEV-1 = 1, etc.)
+      int sevInt = 3;
+      if (severityStr.contains('1')) sevInt = 1;
+      if (severityStr.contains('2')) sevInt = 2;
+      if (severityStr.contains('4')) sevInt = 4;
+      if (severityStr.contains('5')) sevInt = 5;
+
+      // 2. Generate playbook
+      final playbookStr = await _geminiService.generatePlaybook(type, severityStr);
+      List<PlaybookStep> playbook = [];
+      try {
+        final cleanPb = playbookStr.replaceAll('```json', '').replaceAll('```', '').trim();
+        final List<dynamic> pbList = jsonDecode(cleanPb);
+        playbook = pbList.map((e) => PlaybookStep.fromJson(e)).toList();
+      } catch (e) {
+        playbook = [
+          const PlaybookStep(step: 1, action: 'Assess the situation', owner: 'Manager')
+        ];
+      }
+
+      // 3. Create incident in Firestore
+      final authState = _ref.read(authProvider);
+      final reportedBy = authState.user?.uid ?? 'unknown';
+
+      final incident = IncidentModel(
+        id: '', // Generated by Firestore
+        type: type,
+        location: state.location,
+        severity: sevInt,
+        status: 'active',
+        reportedBy: reportedBy,
+        timestamp: DateTime.now(),
+        notes: state.description,
+        description: state.description,
+      );
+
+      final incidentId = await _firebaseService.createIncident(incident);
+
+      // 4. Update state
+      state = state.copyWith(
+        phase: ActivationPhase.confirmed,
+        incidentType: type,
+        severity: severityStr,
+        incidentId: incidentId,
+        playbook: playbook,
+      );
+      
+    } catch (e) {
+      state = state.copyWith(
+        phase: ActivationPhase.error,
+        errorMessage: 'Failed to activate crisis: $e',
+      );
+    }
   }
 
   void reset() => state = const ActivationState();
-
-  String _classifyMock(String type) {
-    const map = {
-      'Fire': 'CRITICAL',
-      'Medical': 'HIGH',
-      'Security': 'HIGH',
-      'Flood': 'MODERATE',
-      'Power': 'MODERATE',
-      'Earthquake': 'CRITICAL',
-      'Elevator': 'LOW',
-      'Other': 'MODERATE',
-    };
-    return map[type] ?? 'HIGH';
-  }
-
-  List<PlaybookStep> _playbookMock(String type) {
-    const fire = [
-      PlaybookStep(1, 'Evacuate affected floors via stairwells', 'Security'),
-      PlaybookStep(2, 'Confirm suppression system activated; call Fire Brigade', 'Engineering'),
-      PlaybookStep(3, 'Account for all guests — report to muster point', 'Front Desk'),
-    ];
-    const medical = [
-      PlaybookStep(1, 'Dispatch first-responder to room immediately', 'Security'),
-      PlaybookStep(2, 'Call emergency services (102)', 'Front Desk'),
-      PlaybookStep(3, 'Clear elevator for paramedic access', 'Engineering'),
-    ];
-    if (type == 'Fire') return fire;
-    if (type == 'Medical') return medical;
-    return [
-      PlaybookStep(1, 'Assess and contain the situation', 'Duty Manager'),
-      PlaybookStep(2, 'Notify relevant departments', 'Front Desk'),
-      PlaybookStep(3, 'Document and report to management', 'Security'),
-    ];
-  }
 }
 
-final activationProvider =
-    StateNotifierProvider<ActivationNotifier, ActivationState>(
-        (ref) => ActivationNotifier());
+final activationProvider = StateNotifierProvider<ActivationNotifier, ActivationState>((ref) {
+  final fbService = ref.watch(firebaseProvider);
+  final geminiService = ref.watch(geminiProvider);
+  return ActivationNotifier(fbService, geminiService, ref);
+});

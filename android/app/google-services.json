@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "612969434118",
+    "project_id": "flutterapp-793d2",
+    "storage_bucket": "flutterapp-793d2.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:612969434118:android:fbc82ca0f5290e952c4787",
+        "android_client_info": {
+          "package_name": "com.vigil.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC0kw4dW8vafbuFHQN5KWMtxNspKmk1zt0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

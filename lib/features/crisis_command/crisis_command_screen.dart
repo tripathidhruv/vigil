@@ -7,25 +7,41 @@ import '../../core/animations/severity_pulse_badge.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/widgets/glass_card.dart';
-import '../../core/widgets/staff_chip.dart';
 import '../../core/widgets/vigil_bottom_nav.dart';
+import '../../services/firebase_service.dart';
+import '../../core/demo/demo_data.dart';
 import 'command_provider.dart';
 
 class CrisisCommandScreen extends ConsumerWidget {
-  const CrisisCommandScreen({super.key});
+  final String incidentId;
+  const CrisisCommandScreen({super.key, required this.incidentId});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(commandProvider);
+    final fbService = ref.watch(firebaseProvider);
+    var incident = fbService.getIncidentById(incidentId);
+    if (incident == null) {
+      final rawId = incidentId.startsWith('INC-') ? incidentId.substring(4) : incidentId;
+      incident = fbService.getIncidentById(rawId);
+      if (incident == null) {
+        incident = demoIncidents.first;
+      }
+    }
+
+    // Now we know incident is not null
+    final nonNullIncident = incident;
+
+    final isAllClear = nonNullIncident.status == 'resolved' || state.isAllClear;
 
     return Scaffold(
       bottomNavigationBar: VigilBottomNav(
         current: VigilTab.warRoom,
-        hasCrisisActive: !state.isAllClear,
+        hasCrisisActive: !isAllClear,
         onTabSelected: (tab) => _nav(context, tab),
       ),
       body: AuroraBackground(
-        blobColors: state.isAllClear
+        blobColors: isAllClear
             ? [
                 AppColors.safeGreen.withOpacity(0.10),
                 AppColors.statusTeal.withOpacity(0.07),
@@ -65,12 +81,12 @@ class CrisisCommandScreen extends ConsumerWidget {
                                 fontSize: 17,
                                 fontWeight: FontWeight.w700,
                                 color: AppColors.textPrimary)),
-                        Text('INC-${state.incidentId}',
+                        Text(nonNullIncident.id.startsWith('INC-') ? nonNullIncident.id : 'INC-${nonNullIncident.id}',
                             style: AppTypography.mono
                                 .copyWith(color: AppColors.crisisRed)),
                       ]),
                 ),
-                SeverityPulseBadge(severity: state.severity),
+                SeverityPulseBadge(severity: _mapSeverity(nonNullIncident.severity)),
               ]),
             ),
             const SizedBox(height: 16),
@@ -82,10 +98,10 @@ class CrisisCommandScreen extends ConsumerWidget {
                     children: [
                   // Timer card
                   GlassCard(
-                    borderColor: state.isAllClear
+                    borderColor: isAllClear
                         ? AppColors.safeGreen.withOpacity(0.4)
                         : AppColors.glassRedBorder,
-                    glowColor: state.isAllClear
+                    glowColor: isAllClear
                         ? AppColors.safeGreen
                         : AppColors.crisisRed,
                     child: Row(children: [
@@ -94,19 +110,19 @@ class CrisisCommandScreen extends ConsumerWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                           Text(
-                            state.isAllClear ? 'RESOLVED' : 'CRISIS ACTIVE',
+                            isAllClear ? 'RESOLVED' : 'CRISIS ACTIVE',
                             style: TextStyle(
                               fontFamily: 'Inter',
                               fontSize: 10,
                               fontWeight: FontWeight.w700,
-                              color: state.isAllClear
+                              color: isAllClear
                                   ? AppColors.safeGreen
                                   : AppColors.crisisRed,
                               letterSpacing: 1.8,
                             ),
                           ),
                           const SizedBox(height: 6),
-                          Text(state.title,
+                          Text(nonNullIncident.title,
                               style: AppTypography.h2
                                   .copyWith(fontSize: 18)),
                           const SizedBox(height: 4),
@@ -114,7 +130,7 @@ class CrisisCommandScreen extends ConsumerWidget {
                             const Icon(Icons.location_on_outlined,
                                 size: 13, color: AppColors.textMuted),
                             const SizedBox(width: 4),
-                            Text(state.location,
+                            Text(nonNullIncident.location,
                                 style: AppTypography.bodySmall),
                           ]),
                         ]),
@@ -132,7 +148,7 @@ class CrisisCommandScreen extends ConsumerWidget {
                             fontFamily: 'Inter',
                             fontSize: 28,
                             fontWeight: FontWeight.w800,
-                            color: state.isAllClear
+                            color: isAllClear
                                 ? AppColors.safeGreen
                                 : AppColors.crisisRed,
                             letterSpacing: -1,
@@ -147,21 +163,21 @@ class CrisisCommandScreen extends ConsumerWidget {
                   Row(children: [
                     Expanded(
                       child: GestureDetector(
-                        onTap: state.isAllClear
+                        onTap: isAllClear
                             ? null
                             : () {
                                 HapticFeedback.heavyImpact();
                                 ref
                                     .read(commandProvider.notifier)
-                                    .declareAllClear();
+                                    .declareAllClear(incidentId);
                               },
                         child: GlassCard(
                           padding: const EdgeInsets.symmetric(
                               vertical: 16, horizontal: 14),
-                          borderColor: state.isAllClear
+                          borderColor: isAllClear
                               ? AppColors.safeGreen.withOpacity(0.4)
                               : AppColors.glassRedBorder,
-                          glowColor: state.isAllClear
+                          glowColor: isAllClear
                               ? AppColors.safeGreen
                               : null,
                           child: Row(
@@ -169,24 +185,24 @@ class CrisisCommandScreen extends ConsumerWidget {
                                   MainAxisAlignment.center,
                               children: [
                                 Icon(
-                                  state.isAllClear
+                                  isAllClear
                                       ? Icons.check_circle
                                       : Icons.check_circle_outline,
-                                  color: state.isAllClear
+                                  color: isAllClear
                                       ? AppColors.safeGreen
                                       : AppColors.textSecondary,
                                   size: 20,
                                 ),
                                 const SizedBox(width: 8),
                                 Text(
-                                  state.isAllClear
+                                  isAllClear
                                       ? 'ALL CLEAR ✓'
                                       : 'DECLARE ALL CLEAR',
                                   style: TextStyle(
                                     fontFamily: 'Inter',
                                     fontSize: 12,
                                     fontWeight: FontWeight.w700,
-                                    color: state.isAllClear
+                                    color: isAllClear
                                         ? AppColors.safeGreen
                                         : AppColors.textSecondary,
                                     letterSpacing: 1,
@@ -199,7 +215,7 @@ class CrisisCommandScreen extends ConsumerWidget {
                     const SizedBox(width: 10),
                     Expanded(
                       child: GestureDetector(
-                        onTap: () => context.go('/war-room'),
+                        onTap: () => context.go('/war-room/$incidentId'),
                         child: GlassCard(
                           padding: const EdgeInsets.symmetric(
                               vertical: 16, horizontal: 14),
@@ -231,7 +247,7 @@ class CrisisCommandScreen extends ConsumerWidget {
                   Row(children: [
                     Expanded(
                       child: GestureDetector(
-                        onTap: () => context.go('/guest-alert'),
+                        onTap: () => context.go('/guest-alert?id=$incidentId'),
                         child: GlassCard(
                           padding: const EdgeInsets.symmetric(
                               vertical: 16, horizontal: 14),
@@ -292,30 +308,18 @@ class CrisisCommandScreen extends ConsumerWidget {
                   // Assigned staff
                   Text('Assigned Staff', style: AppTypography.h3),
                   const SizedBox(height: 12),
-                  ...state.assignedStaff.map((s) => Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: GlassCard(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 12),
-                          child: Row(children: [
-                            StaffChip(
-                                name: s.name,
-                                role: s.role,
-                                status: s.status),
-                            const Spacer(),
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 5),
-                              decoration: BoxDecoration(
-                                  color: AppColors.bgElevated,
-                                  borderRadius: BorderRadius.circular(6)),
-                              child: Text(s.task,
-                                  style: AppTypography.bodySmall
-                                      .copyWith(fontSize: 11)),
-                            ),
-                          ]),
-                        ),
-                      )),
+                  // Render assigned staff UI...
+                  if (nonNullIncident.assignedTo.isNotEmpty)
+                    ...nonNullIncident.assignedTo.map((uid) => Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: GlassCard(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 14, vertical: 12),
+                            child: Row(children: [
+                              Text('User $uid', style: AppTypography.bodySmall), // Simple fallback for now
+                            ]),
+                          ),
+                        )),
                   const SizedBox(height: 22),
 
                   // Compliance shortcut
@@ -323,7 +327,7 @@ class CrisisCommandScreen extends ConsumerWidget {
                     borderColor:
                         AppColors.intelViolet.withOpacity(0.3),
                     glowColor: AppColors.intelViolet,
-                    onTap: () => context.go('/compliance'),
+                    onTap: () => context.go('/compliance?id=$incidentId'),
                     child: Row(children: [
                       Container(
                         width: 36, height: 36,
@@ -370,6 +374,19 @@ class CrisisCommandScreen extends ConsumerWidget {
         context.go('/notifications');
       case VigilTab.profile:
         context.go('/profile');
+      case VigilTab.myTasks:
+        context.go('/staff-home');
+      case VigilTab.guestHome:
+        context.go('/guest-home');
+      default:
+        break;
     }
+  }
+
+  CrisisSeverity _mapSeverity(int sev) {
+    if (sev <= 1) return CrisisSeverity.low;
+    if (sev == 2) return CrisisSeverity.moderate;
+    if (sev == 3) return CrisisSeverity.high;
+    return CrisisSeverity.critical;
   }
 }

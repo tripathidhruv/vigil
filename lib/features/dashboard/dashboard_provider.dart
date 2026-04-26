@@ -1,9 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../core/widgets/incident_card.dart';
-import '../../core/widgets/staff_chip.dart';
-import '../../core/animations/severity_pulse_badge.dart';
-
-// ── Models ───────────────────────────────────────────────────────────────────
+import '../../models/incident_model.dart';
+import '../../models/user_model.dart';
+import '../../services/firebase_service.dart';
 
 class HotelStats {
   final int activeIncidents;
@@ -21,68 +19,73 @@ class HotelStats {
   });
 }
 
-class StaffMember {
-  final String name;
-  final String role;
-  final StaffStatus status;
-
-  const StaffMember(this.name, this.role, this.status);
-}
-
-// ── Mock data ─────────────────────────────────────────────────────────────────
-
-const List<IncidentModel> kMockIncidents = [
-  IncidentModel(
-    id: 'INC-001',
-    title: 'Kitchen Fire — Suppression Activated',
-    location: 'Floor 2 · Main Kitchen',
-    timeAgo: '8m ago',
-    severity: CrisisSeverity.critical,
-    assignedCount: 4,
-    isActive: true,
-  ),
-  IncidentModel(
-    id: 'INC-002',
-    title: 'Guest Medical Emergency',
-    location: 'Floor 5 · Room 514',
-    timeAgo: '22m ago',
-    severity: CrisisSeverity.high,
-    assignedCount: 2,
-    isActive: true,
-  ),
-  IncidentModel(
-    id: 'INC-003',
-    title: 'Elevator Malfunction — Guests Trapped',
-    location: 'North Tower · Elevator 3',
-    timeAgo: '1h 4m ago',
-    severity: CrisisSeverity.moderate,
-    assignedCount: 3,
-    isActive: false,
-  ),
-];
-
-const List<StaffMember> kMockStaff = [
-  StaffMember('James Harrington', 'General Manager', StaffStatus.available),
-  StaffMember('Sarah Chen', 'Security Chief', StaffStatus.onScene),
-  StaffMember('David Okafor', 'Front Desk', StaffStatus.available),
-  StaffMember('Maria Santos', 'F&B Manager', StaffStatus.onScene),
-  StaffMember('Raj Patel', 'Engineering', StaffStatus.available),
-  StaffMember('Liu Wei', 'Housekeeping', StaffStatus.offDuty),
-];
-
 // ── Providers ─────────────────────────────────────────────────────────────────
 
-final hotelStatsProvider = Provider<HotelStats>((ref) {
-  return const HotelStats(
-    activeIncidents: 2,
-    staffOnDuty: 14,
-    resolvedToday: 5,
-    avgResponseMin: 4,
-    hasCrisis: true,
-  );
+final incidentListProvider = StreamProvider<List<IncidentModel>>((ref) {
+  final fbService = ref.watch(firebaseProvider);
+  return fbService.streamActiveIncidents();
 });
 
-final staffListProvider = Provider<List<StaffMember>>((ref) => kMockStaff);
+final incidentByIdProvider = Provider.family<IncidentModel?, String>((ref, id) {
+  return ref.watch(allIncidentsProvider).whenData((list) => 
+    list.cast<IncidentModel?>().firstWhere((i) => i?.id == id, orElse: () => null)
+  ).value;
+});
 
-final incidentListProvider =
-    Provider<List<IncidentModel>>((ref) => kMockIncidents);
+final recentIncidentsProvider = StreamProvider<List<IncidentModel>>((ref) {
+  final fbService = ref.watch(firebaseProvider);
+  return fbService.streamRecentIncidents();
+});
+
+final staffListProvider = StreamProvider<List<UserModel>>((ref) {
+  final fbService = ref.watch(firebaseProvider);
+  return fbService.streamStaffOnDuty();
+});
+
+final allIncidentsProvider = StreamProvider<List<IncidentModel>>((ref) {
+  final fbService = ref.watch(firebaseProvider);
+  return fbService.streamAllIncidents();
+});
+
+final hotelStatsProvider = Provider<AsyncValue<HotelStats>>((ref) {
+  final incidentsAsync = ref.watch(allIncidentsProvider);
+  final staffAsync = ref.watch(staffListProvider);
+
+  if (incidentsAsync.isLoading || staffAsync.isLoading) {
+    return const AsyncValue.loading();
+  }
+  if (incidentsAsync.hasError) {
+    return AsyncValue.error(incidentsAsync.error!, incidentsAsync.stackTrace!);
+  }
+
+  final allDocs = incidentsAsync.value ?? [];
+  final staffList = staffAsync.value ?? [];
+
+  int active = 0;
+  int resolvedToday = 0;
+  int totalTime = 0;
+  int resolvedCount = 0;
+  final now = DateTime.now();
+
+  for (var incident in allDocs) {
+    if (incident.isActive) {
+      active++;
+    } else if (incident.status == 'resolved') {
+      if (now.difference(incident.timestamp).inHours < 24) {
+        resolvedToday++;
+      }
+      resolvedCount++;
+      totalTime += 4; 
+    }
+  }
+
+  final avg = resolvedCount > 0 ? (totalTime / resolvedCount).round() : 0;
+
+  return AsyncValue.data(HotelStats(
+    activeIncidents: active,
+    staffOnDuty: staffList.length,
+    resolvedToday: resolvedToday,
+    avgResponseMin: avg,
+    hasCrisis: active > 0,
+  ));
+});

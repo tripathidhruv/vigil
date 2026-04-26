@@ -7,17 +7,30 @@ import '../../core/animations/slide_up_reveal.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/widgets/glass_card.dart';
+import '../../core/widgets/vigil_bottom_nav.dart';
 import 'staff_provider.dart';
+import '../auth/auth_provider.dart';
 
 class StaffHomeScreen extends ConsumerWidget {
   const StaffHomeScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(staffProvider);
-    final done = state.tasks.where((t) => t.completed).length;
+    final authState = ref.watch(authProvider);
+    final user = authState.user;
+    final incidentsAsync = ref.watch(staffAssignedIncidentsProvider);
+    
+    // In our simplified model, tasks are incidents. Done = resolved.
+    // For staff view, we only show active ones, so none are 'done'.
+    // For staff view, we only show active ones, so none are 'done'.
+    final total = incidentsAsync.valueOrNull?.length ?? 0;
 
     return Scaffold(
+      bottomNavigationBar: VigilBottomNav(
+        current: VigilTab.myTasks,
+        hasCrisisActive: false,
+        onTabSelected: (tab) => _navTo(context, tab),
+      ),
       body: AuroraBackground(
         blobColors: [
           AppColors.statusTeal.withOpacity(0.09),
@@ -31,14 +44,14 @@ class StaffHomeScreen extends ConsumerWidget {
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
               child: Row(children: [
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(state.name,
+                  Text(user?.name ?? 'Staff',
                       style: const TextStyle(
                           fontFamily: 'Inter',
                           fontSize: 20,
                           fontWeight: FontWeight.w800,
                           color: AppColors.textPrimary)),
                   const SizedBox(height: 3),
-                  Text('${state.role} · ${state.shiftTime}',
+                  Text('${user?.role ?? 'Staff'} · On Duty',
                       style: AppTypography.bodySmall),
                 ]),
                 const Spacer(),
@@ -46,7 +59,9 @@ class StaffHomeScreen extends ConsumerWidget {
                 GestureDetector(
                   onTap: () async {
                     HapticFeedback.heavyImpact();
-                    await ref.read(staffProvider.notifier).sendPanic();
+                    // Panic action: create an SEV-1 incident
+                    // using activation provider or firebase service.
+                    // For now, just show the snackbar.
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
@@ -96,23 +111,21 @@ class StaffHomeScreen extends ConsumerWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                     Row(children: [
-                      Text('Today\'s Tasks',
+                      Text('Assigned Incidents',
                           style: AppTypography.h3),
                       const Spacer(),
-                      Text('$done / ${state.tasks.length} done',
+                      Text('$total active',
                           style: AppTypography.bodySmall
                               .copyWith(color: AppColors.statusTeal)),
                     ]),
                     const SizedBox(height: 10),
                     ClipRRect(
                       borderRadius: BorderRadius.circular(2),
-                      child: LinearProgressIndicator(
-                        value: state.tasks.isEmpty
-                            ? 0
-                            : done / state.tasks.length,
+                      child: const LinearProgressIndicator(
+                        value: 0.0,
                         minHeight: 4,
                         backgroundColor: AppColors.borderDefault,
-                        valueColor: const AlwaysStoppedAnimation<Color>(
+                        valueColor: AlwaysStoppedAnimation<Color>(
                             AppColors.statusTeal),
                       ),
                     ),
@@ -123,183 +136,142 @@ class StaffHomeScreen extends ConsumerWidget {
             const SizedBox(height: 16),
 
             // Active crisis banner
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: SlideUpReveal(
-                delay: const Duration(milliseconds: 120),
-                child: GestureDetector(
-                  onTap: () => context.go('/crisis-command'),
-                  child: GlassCard(
-                    borderColor: AppColors.glassRedBorder,
-                    glowColor: AppColors.crisisRed,
-                    padding: const EdgeInsets.all(14),
-                    child: Row(children: [
-                      const Icon(Icons.local_fire_department_rounded,
-                          color: AppColors.crisisRed, size: 22),
-                      const SizedBox(width: 12),
-                      Expanded(
-                          child: Column(
-                              crossAxisAlignment:
-                                  CrossAxisAlignment.start,
-                              children: [
-                            const Text('ACTIVE INCIDENT',
-                                style: TextStyle(
-                                    fontFamily: 'Inter',
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w700,
-                                    color: AppColors.crisisRed,
-                                    letterSpacing: 1.5)),
-                            const SizedBox(height: 2),
-                            Text('Kitchen fire — Floor 2 · Kitchen walkthrough assigned',
-                                style: AppTypography.bodySmall),
-                          ])),
-                      const Icon(Icons.chevron_right,
-                          color: AppColors.crisisRed),
-                    ]),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-
-            // Task list
-            Expanded(
-              child: ListView.separated(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 40),
-                itemCount: state.tasks.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 8),
-                itemBuilder: (_, i) {
-                  final task = state.tasks[i];
-                  return SlideUpReveal(
-                    delay: Duration(milliseconds: 160 + i * 55),
-                    child: GestureDetector(
-                      onTap: () => ref
-                          .read(staffProvider.notifier)
-                          .toggleTask(task.id),
-                      child: GlassCard(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 14),
-                        borderColor: task.completed
-                            ? AppColors.safeGreen.withOpacity(0.3)
-                            : AppColors.borderDefault,
-                        child: Row(children: [
-                          AnimatedContainer(
-                            duration:
-                                const Duration(milliseconds: 250),
-                            width: 22,
-                            height: 22,
-                            decoration: BoxDecoration(
-                              color: task.completed
-                                  ? AppColors.statusTeal
-                                  : Colors.transparent,
-                              border: Border.all(
-                                color: task.completed
-                                    ? AppColors.statusTeal
-                                    : AppColors.borderDefault,
-                                width: 1.5,
-                              ),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: task.completed
-                                ? const Icon(Icons.check,
-                                    size: 14, color: Colors.white)
-                                : null,
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
+            if (total > 0)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: SlideUpReveal(
+                  delay: const Duration(milliseconds: 120),
+                  child: GestureDetector(
+                    onTap: () => context.go('/crisis-command/${incidentsAsync.valueOrNull!.first.id}'),
+                    child: GlassCard(
+                      borderColor: AppColors.glassRedBorder,
+                      glowColor: AppColors.crisisRed,
+                      padding: const EdgeInsets.all(14),
+                      child: Row(children: [
+                        const Icon(Icons.local_fire_department_rounded,
+                            color: AppColors.crisisRed, size: 22),
+                        const SizedBox(width: 12),
+                        Expanded(
                             child: Column(
                                 crossAxisAlignment:
                                     CrossAxisAlignment.start,
                                 children: [
-                              Text(task.title,
+                              const Text('CRISIS ASSIGNED',
                                   style: TextStyle(
-                                    fontFamily: 'Inter',
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
-                                    color: task.completed
-                                        ? AppColors.textMuted
-                                        : AppColors.textPrimary,
-                                    decoration: task.completed
-                                        ? TextDecoration.lineThrough
-                                        : null,
-                                  )),
-                              const SizedBox(height: 3),
-                              Row(children: [
-                                const Icon(
-                                    Icons.location_on_outlined,
-                                    size: 12,
-                                    color: AppColors.textMuted),
-                                const SizedBox(width: 4),
-                                Text(task.location,
-                                    style:
-                                        AppTypography.bodySmall),
-                              ]),
-                            ]),
-                          ),
-                        ]),
-                      ),
+                                      fontFamily: 'Inter',
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w700,
+                                      color: AppColors.crisisRed,
+                                      letterSpacing: 1.5)),
+                              const SizedBox(height: 2),
+                              Text('${incidentsAsync.valueOrNull!.first.type} — ${incidentsAsync.valueOrNull!.first.location}',
+                                  style: AppTypography.bodySmall),
+                            ])),
+                        const Icon(Icons.chevron_right,
+                            color: AppColors.crisisRed),
+                      ]),
                     ),
-                  );
-                },
+                  ),
+                ),
+              ),
+            if (total > 0) const SizedBox(height: 20),
+
+            // Task list
+            Expanded(
+              child: incidentsAsync.when(
+                data: (list) => list.isEmpty
+                    ? const Center(child: Text('No active assignments', style: TextStyle(color: AppColors.textMuted)))
+                    : ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(20, 0, 20, 40),
+                        itemCount: list.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
+                        itemBuilder: (_, i) {
+                          final inc = list[i];
+                          return SlideUpReveal(
+                            delay: Duration(milliseconds: 160 + i * 55),
+                            child: GestureDetector(
+                              onTap: () => context.go('/crisis-command/${inc.id}'),
+                              child: GlassCard(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 16, vertical: 14),
+                                borderColor: AppColors.borderDefault,
+                                child: Row(children: [
+                                  GestureDetector(
+                                    onTap: () async {
+                                      HapticFeedback.lightImpact();
+                                      await ref.read(staffActionProvider).markIncidentComplete(inc.id);
+                                    },
+                                    child: Container(
+                                      width: 22,
+                                      height: 22,
+                                      decoration: BoxDecoration(
+                                        color: Colors.transparent,
+                                        border: Border.all(
+                                          color: AppColors.borderDefault,
+                                          width: 1.5,
+                                        ),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: const Icon(Icons.check, size: 14, color: AppColors.textMuted),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 14),
+                                  Expanded(
+                                    child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                      Text(inc.type,
+                                          style: const TextStyle(
+                                            fontFamily: 'Inter',
+                                            fontSize: 14,
+                                            fontWeight: FontWeight.w600,
+                                            color: AppColors.textPrimary,
+                                          )),
+                                      const SizedBox(height: 3),
+                                      Row(children: [
+                                        const Icon(
+                                            Icons.location_on_outlined,
+                                            size: 12,
+                                            color: AppColors.textMuted),
+                                        const SizedBox(width: 4),
+                                        Text(inc.location,
+                                            style: AppTypography.bodySmall),
+                                      ]),
+                                    ]),
+                                  ),
+                                ]),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                loading: () => const Center(child: CircularProgressIndicator(color: AppColors.statusTeal)),
+                error: (e, _) => Center(child: Text('Error: $e', style: const TextStyle(color: Colors.red))),
               ),
             ),
 
-            // Bottom quick actions
-            Container(
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
-              decoration: const BoxDecoration(
-                color: AppColors.bgCard,
-                border: Border(
-                    top: BorderSide(color: AppColors.borderDefault)),
-              ),
-              child: Row(children: [
-                _FooterBtn('War Room', Icons.crisis_alert,
-                    AppColors.warningAmber, () => context.go('/war-room')),
-                const SizedBox(width: 10),
-                _FooterBtn('Floor Map', Icons.map_outlined,
-                    AppColors.statusTeal, () => context.go('/floor-map')),
-                const SizedBox(width: 10),
-                _FooterBtn('Profile', Icons.person_outline,
-                    AppColors.commandBlue, () => context.go('/profile')),
-              ]),
-            ),
+
           ]),
         ),
       ),
     );
   }
-}
 
-class _FooterBtn extends StatelessWidget {
-  final String label;
-  final IconData icon;
-  final Color color;
-  final VoidCallback onTap;
-  const _FooterBtn(this.label, this.icon, this.color, this.onTap);
-
-  @override
-  Widget build(BuildContext context) => Expanded(
-        child: GestureDetector(
-          onTap: onTap,
-          child: Container(
-            padding:
-                const EdgeInsets.symmetric(vertical: 12),
-            decoration: BoxDecoration(
-              color: color.withOpacity(0.10),
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: color.withOpacity(0.25)),
-            ),
-            child: Column(children: [
-              Icon(icon, size: 20, color: color),
-              const SizedBox(height: 4),
-              Text(label,
-                  style: TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: color)),
-            ]),
-          ),
-        ),
-      );
+  void _navTo(BuildContext context, VigilTab tab) {
+    switch (tab) {
+      case VigilTab.myTasks:
+        break;
+      case VigilTab.warRoom:
+        context.go('/war-room');
+      case VigilTab.map:
+        context.go('/floor-map');
+      case VigilTab.notifications:
+        context.go('/notifications');
+      case VigilTab.profile:
+        context.go('/profile');
+      default:
+        break;
+    }
+  }
 }

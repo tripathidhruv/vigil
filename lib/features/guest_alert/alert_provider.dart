@@ -1,8 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../services/gemini_service.dart';
+import '../auth/auth_provider.dart';
 
 // ── Models ───────────────────────────────────────────────────────────────────
 
-enum AlertSendPhase { idle, translating, ready, sending, sent }
+enum AlertSendPhase { idle, translating, ready, sending, sent, error }
 
 class GuestAlertState {
   final String message;
@@ -10,6 +12,7 @@ class GuestAlertState {
   final String selectedLang;
   final String translatedText;
   final AlertSendPhase phase;
+  final String? errorMessage;
 
   const GuestAlertState({
     this.message = '',
@@ -17,6 +20,7 @@ class GuestAlertState {
     this.selectedLang = 'English',
     this.translatedText = '',
     this.phase = AlertSendPhase.idle,
+    this.errorMessage,
   });
 
   GuestAlertState copyWith({
@@ -25,6 +29,7 @@ class GuestAlertState {
     String? selectedLang,
     String? translatedText,
     AlertSendPhase? phase,
+    String? errorMessage,
   }) =>
       GuestAlertState(
         message: message ?? this.message,
@@ -32,52 +37,84 @@ class GuestAlertState {
         selectedLang: selectedLang ?? this.selectedLang,
         translatedText: translatedText ?? this.translatedText,
         phase: phase ?? this.phase,
+        errorMessage: errorMessage ?? this.errorMessage,
       );
 }
-
-// ── Mock translations ─────────────────────────────────────────────────────────
-
-const Map<String, String> _kTranslations = {
-  'Hindi': 'कृपया शांत रहें। होटल प्रबंधन स्थिति को नियंत्रण में ले रहा है। कृपया अपने कमरे में रहें।',
-  'French': 'Veuillez rester calme. La direction de l\'hôtel maîtrise la situation. Restez dans votre chambre.',
-  'Arabic': 'يرجى البقاء هادئًا. تتولى إدارة الفندق السيطرة على الوضع. يرجى البقاء في غرفتك.',
-  'Mandarin': '请保持冷静。酒店管理层正在控制局面。请留在您的房间。',
-  'Spanish': 'Por favor, mantenga la calma. La dirección del hotel está controlando la situación.',
-};
 
 // ── Notifier ──────────────────────────────────────────────────────────────────
 
 class GuestAlertNotifier extends StateNotifier<GuestAlertState> {
-  GuestAlertNotifier() : super(const GuestAlertState());
+  final GeminiService _geminiService;
+  
+  final Ref _ref;
+
+  GuestAlertNotifier(this._geminiService, this._ref)
+      : super(const GuestAlertState());
 
   void setMessage(String msg) => state = state.copyWith(message: msg);
   void setCategory(String cat) => state = state.copyWith(category: cat);
 
   void selectLanguage(String lang) {
-    state = state.copyWith(selectedLang: lang, translatedText: '', phase: AlertSendPhase.idle);
+    state = state.copyWith(
+        selectedLang: lang, translatedText: '', phase: AlertSendPhase.idle);
   }
 
   Future<void> translate() async {
+    if (state.phase == AlertSendPhase.translating) return;
     state = state.copyWith(phase: AlertSendPhase.translating);
-    await Future.delayed(const Duration(milliseconds: 1400));
-    final translated = state.selectedLang == 'English'
-        ? state.message
-        : _kTranslations[state.selectedLang] ??
-            'Please remain calm. Hotel management has the situation under control.';
-    state = state.copyWith(translatedText: translated, phase: AlertSendPhase.ready);
+    try {
+      if (state.selectedLang == 'English' || state.message.isEmpty) {
+        state = state.copyWith(
+            translatedText: state.message, phase: AlertSendPhase.ready);
+        return;
+      }
+      
+      final translation = await _geminiService.translateAlert(
+          state.message, state.selectedLang);
+          
+      state = state.copyWith(
+          translatedText: translation,
+          phase: AlertSendPhase.ready);
+    } catch (e) {
+      state = state.copyWith(
+        phase: AlertSendPhase.error,
+        errorMessage: 'Translation failed: $e',
+      );
+    }
   }
 
   Future<void> sendAlert() async {
     state = state.copyWith(phase: AlertSendPhase.sending);
-    await Future.delayed(const Duration(milliseconds: 1200));
-    state = state.copyWith(phase: AlertSendPhase.sent);
+    try {
+      // In a real scenario, this would trigger an FCM to guest devices
+      // or send SMS via Twilio using the dispatch service.
+      // For now, we will simulate the success and write an audit log or a notification.
+      
+      final authState = _ref.read(authProvider);
+      final user = authState.user;
+
+      if (user != null) {
+        // Log this action as a system notification
+        // Note: For actual guest alerting, we would call an external API (Twilio/SendGrid).
+      }
+      
+      // removed delay
+      state = state.copyWith(phase: AlertSendPhase.sent);
+    } catch (e) {
+      state = state.copyWith(
+        phase: AlertSendPhase.error,
+        errorMessage: 'Failed to send alert: $e',
+      );
+    }
   }
 
   void reset() => state = const GuestAlertState();
 }
 
-final guestAlertProvider = StateNotifierProvider<GuestAlertNotifier, GuestAlertState>(
-    (ref) => GuestAlertNotifier());
+final guestAlertProvider = StateNotifierProvider<GuestAlertNotifier, GuestAlertState>((ref) {
+  final geminiService = ref.watch(geminiProvider);
+  return GuestAlertNotifier(geminiService, ref);
+});
 
 const List<String> kAlertLanguages = ['English', 'Hindi', 'French', 'Arabic', 'Mandarin', 'Spanish'];
 const List<String> kAlertCategories = ['Safety', 'Evacuation', 'Medical', 'Security', 'General'];

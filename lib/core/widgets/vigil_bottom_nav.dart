@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../theme/app_colors.dart';
+import '../../features/notifications/notifications_provider.dart';
 
-enum VigilTab { dashboard, warRoom, map, notifications, profile }
+import '../../features/auth/auth_provider.dart';
 
-/// Custom bottom navigation bar for VIGIL manager screens.
-class VigilBottomNav extends StatelessWidget {
+enum VigilTab { dashboard, warRoom, map, notifications, profile, myTasks, guestHome }
+
+/// Custom bottom navigation bar for VIGIL screens.
+class VigilBottomNav extends ConsumerWidget {
   final VigilTab current;
   final ValueChanged<VigilTab> onTabSelected;
   final bool hasCrisisActive;
@@ -18,7 +22,20 @@ class VigilBottomNav extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unreadCount = ref.watch(unreadNotificationsCountProvider);
+    final hasUnreadAlerts = unreadCount > 0;
+    final role = ref.watch(authProvider).role;
+
+    List<VigilTab> tabs;
+    if (role == UserRole.manager) {
+      tabs = [VigilTab.dashboard, VigilTab.warRoom, VigilTab.map, VigilTab.notifications, VigilTab.profile];
+    } else if (role == UserRole.staff) {
+      tabs = [VigilTab.myTasks, VigilTab.warRoom, VigilTab.map, VigilTab.notifications, VigilTab.profile];
+    } else {
+      tabs = [VigilTab.guestHome, VigilTab.notifications, VigilTab.profile];
+    }
+
     return Container(
       decoration: const BoxDecoration(
         color: AppColors.bgCard,
@@ -31,11 +48,12 @@ class VigilBottomNav extends StatelessWidget {
         child: SizedBox(
           height: 64,
           child: Row(
-            children: VigilTab.values.map((tab) {
+            children: tabs.map((tab) {
               return Expanded(child: _NavItem(
                 tab: tab,
                 isSelected: current == tab,
-                hasCrisisActive: hasCrisisActive && tab == VigilTab.dashboard,
+                hasCrisisActive: hasCrisisActive && (tab == VigilTab.dashboard || tab == VigilTab.myTasks),
+                hasUnreadAlerts: hasUnreadAlerts && tab == VigilTab.notifications,
                 onTap: () {
                   HapticFeedback.lightImpact();
                   onTabSelected(tab);
@@ -53,12 +71,14 @@ class _NavItem extends StatelessWidget {
   final VigilTab tab;
   final bool isSelected;
   final bool hasCrisisActive;
+  final bool hasUnreadAlerts;
   final VoidCallback onTap;
 
   const _NavItem({
     required this.tab,
     required this.isSelected,
     required this.hasCrisisActive,
+    this.hasUnreadAlerts = false,
     required this.onTap,
   });
 
@@ -74,6 +94,10 @@ class _NavItem extends StatelessWidget {
         return Icons.notifications_outlined;
       case VigilTab.profile:
         return Icons.person_outline;
+      case VigilTab.myTasks:
+        return Icons.check_circle_outline;
+      case VigilTab.guestHome:
+        return Icons.home_outlined;
     }
   }
 
@@ -89,6 +113,10 @@ class _NavItem extends StatelessWidget {
         return Icons.notifications;
       case VigilTab.profile:
         return Icons.person;
+      case VigilTab.myTasks:
+        return Icons.check_circle;
+      case VigilTab.guestHome:
+        return Icons.home;
     }
   }
 
@@ -104,6 +132,10 @@ class _NavItem extends StatelessWidget {
         return 'Alerts';
       case VigilTab.profile:
         return 'Profile';
+      case VigilTab.myTasks:
+        return 'My Tasks';
+      case VigilTab.guestHome:
+        return 'Home';
     }
   }
 
@@ -121,7 +153,7 @@ class _NavItem extends StatelessWidget {
             clipBehavior: Clip.none,
             children: [
               Icon(isSelected ? _iconSelected : _icon, color: color, size: 22),
-              if (hasCrisisActive)
+              if (hasCrisisActive || hasUnreadAlerts)
                 Positioned(
                   top: -4,
                   right: -6,

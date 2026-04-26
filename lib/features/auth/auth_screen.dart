@@ -34,9 +34,9 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     if (!_formKey.currentState!.validate()) return;
     final n = ref.read(authProvider.notifier);
     if (_isLogin) {
-      await n.signIn(_emailCtrl.text.trim(), _pwCtrl.text);
+      n.signIn(_emailCtrl.text.trim(), _pwCtrl.text);
     } else {
-      await n.register(_emailCtrl.text.trim(), _pwCtrl.text, _nameCtrl.text.trim());
+      n.register(_emailCtrl.text.trim(), _pwCtrl.text, _nameCtrl.text.trim());
     }
   }
 
@@ -46,7 +46,13 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
 
     ref.listen(authProvider, (_, next) {
       if (next.status == AuthStatus.success) {
-        context.go(next.role == UserRole.manager ? '/dashboard' : '/staff-home');
+        if (next.role == UserRole.manager) {
+          context.go('/dashboard');
+        } else if (next.role == UserRole.staff) {
+          context.go('/staff-home');
+        } else {
+          context.go('/guest-home');
+        }
       }
     });
 
@@ -181,7 +187,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'Demo: manager@vigil.com or staff@vigil.com (any password)',
+                            'Presets:\n1. manager@vigil.com / manager123\n2. staff@vigil.com / staff123\n3. guest@vigil.com / guest123',
                             style: AppTypography.bodySmall
                                 .copyWith(color: AppColors.intelViolet),
                           ),

@@ -1,4 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../services/gemini_service.dart';
+import '../../services/firebase_service.dart';
 
 // ── Models ───────────────────────────────────────────────────────────────────
 
@@ -24,79 +26,130 @@ class ComplianceState {
   final bool isGenerating;
   final bool isComplete;
   final List<ReportSection> sections;
+  final String? errorMessage;
 
   const ComplianceState({
     this.isGenerating = false,
     this.isComplete = false,
     this.sections = const [],
+    this.errorMessage,
   });
 
   ComplianceState copyWith({
     bool? isGenerating,
     bool? isComplete,
     List<ReportSection>? sections,
+    String? errorMessage,
   }) =>
       ComplianceState(
         isGenerating: isGenerating ?? this.isGenerating,
         isComplete: isComplete ?? this.isComplete,
         sections: sections ?? this.sections,
+        errorMessage: errorMessage ?? this.errorMessage,
       );
 }
 
 const List<ReportSection> _kEmptySections = [
-  ReportSection(title: '1. Incident Overview'),
-  ReportSection(title: '2. Timeline & Chronology'),
-  ReportSection(title: '3. Response Actions'),
-  ReportSection(title: '4. Guest Impact Assessment'),
-  ReportSection(title: '5. Regulatory Notifications'),
-];
-
-const _kSectionContent = [
-  'Kitchen fire outbreak detected at 18:01 hrs in Main Kitchen, Floor 2. '
-      'Hotel automatic suppression system activated within 42 seconds. '
-      'Severity classified as CRITICAL by AI triage system. '
-      'Hotel Incident ID: INC-001. No guest casualties reported.',
-  '18:01 — Fire suppression system triggered.\n'
-      '18:02 — Security Chief Sarah Chen deployed to Floor 2.\n'
-      '18:03 — Floor 2 guest evacuation commenced.\n'
-      '18:06 — Mumbai Fire Brigade arrived on site.\n'
-      '18:24 — Fire fully extinguished. All-clear declared at 18:31.',
-  'Immediate evacuation of Floor 2 (14 guests). '
-      'Engineering team isolated gas supply within 4 minutes. '
-      'Guest welfare check conducted by Front Desk. '
-      'Medical team on standby — no injuries recorded. '
-      'CCTV footage preserved for investigation.',
-  '14 guests evacuated from Floor 2 rooms. '
-      'F&B operations suspended for 3 hours. '
-      'Estimated property damage: ₹2.4L (kitchen equipment). '
-      'Zero guest injuries. 2 guests relocated to alternative rooms. '
-      'Guests offered complimentary dining as service recovery.',
-  'Maharashtra Fire Department: Incident report submitted per Rule 14(3).\n'
-      'Insurance carrier notified within 2 hours as per policy clause.\n'
-      'FSSAI kitchen inspection scheduled within 72 hours.\n'
-      'Hotel Association of India notification filed.',
+  ReportSection(title: '1. Executive Summary'),
+  ReportSection(title: '2. Timeline of Events'),
+  ReportSection(title: '3. Response Actions Taken'),
+  ReportSection(title: '4. Regulatory Compliance Assessment'),
+  ReportSection(title: '5. Recommendations'),
 ];
 
 // ── Notifier ──────────────────────────────────────────────────────────────────
 
 class ComplianceNotifier extends StateNotifier<ComplianceState> {
-  ComplianceNotifier() : super(const ComplianceState(sections: _kEmptySections));
+  final GeminiService _geminiService;
+  final FirebaseService _firebaseService;
 
-  Future<void> generate() async {
-    state = state.copyWith(isGenerating: true, sections: _kEmptySections);
-    for (int i = 0; i < _kEmptySections.length; i++) {
-      await Future.delayed(const Duration(milliseconds: 900));
-      if (!mounted) return;
-      final updated = List<ReportSection>.from(state.sections);
-      updated[i] = updated[i].copyWith(
-        content: _kSectionContent[i],
-        isLoaded: true,
+  ComplianceNotifier(this._geminiService, this._firebaseService)
+      : super(const ComplianceState(sections: _kEmptySections));
+
+  Future<void> generate(String incidentId) async {
+    if (state.isGenerating) return;
+    state = state.copyWith(isGenerating: true, sections: _kEmptySections, errorMessage: null);
+    
+    try {
+      // 1. Fetch incident details
+      final incidentStream = _firebaseService.streamIncident(incidentId);
+      final incident = await incidentStream.first;
+      
+      if (incident == null) {
+        state = state.copyWith(
+          isGenerating: false,
+          errorMessage: 'Incident not found',
+        );
+        return;
+      }
+
+      // We need a resolved time. Let's assume it was resolved now if active, or just use now
+      final resolvedTime = DateTime.now();
+
+      // 2. Generate report text via Gemini
+      final reportText = await _geminiService.generateComplianceReport(
+        incidentType: incident.type,
+        severity: 'SEV-${incident.severity}',
+        startTime: incident.timestamp,
+        resolvedTime: resolvedTime,
+        location: incident.location,
+        responseActions: incident.notes.isNotEmpty ? incident.notes : 'Standard response playbook executed.',
       );
-      state = state.copyWith(sections: updated);
+
+      // 3. Parse Gemini output into sections
+      // The prompt asks for 5 sections. We can try to split by numbered list
+      final parsedSections = _parseSections(reportText);
+
+      // 4. Update UI progressively
+      for (int i = 0; i < _kEmptySections.length; i++) {
+        // removed delay
+        if (!mounted) return;
+        final updated = List<ReportSection>.from(state.sections);
+        
+        final content = i < parsedSections.length 
+            ? parsedSections[i] 
+            : 'Section generation incomplete.';
+            
+        updated[i] = updated[i].copyWith(
+          content: content,
+          isLoaded: true,
+        );
+        state = state.copyWith(sections: updated);
+      }
+      state = state.copyWith(isGenerating: false, isComplete: true);
+      
+    } catch (e) {
+      state = state.copyWith(
+        isGenerating: false,
+        errorMessage: 'Report generation failed: $e',
+      );
     }
-    state = state.copyWith(isGenerating: false, isComplete: true);
   }
+  
+  List<String> _parseSections(String text) {
+    // Basic regex split by "1.", "2.", etc.
+    final List<String> result = [];
+    final pattern = RegExp(r'\d\.\s+[^\n]+');
+    final matches = pattern.allMatches(text).toList();
+    
+    if (matches.isEmpty) {
+      return [text]; // Fallback
+    }
+
+    for (int i = 0; i < matches.length; i++) {
+      final start = matches[i].end;
+      final end = (i + 1 < matches.length) ? matches[i + 1].start : text.length;
+      result.add(text.substring(start, end).trim());
+    }
+    
+    return result;
+  }
+  
+  void reset() => state = const ComplianceState(sections: _kEmptySections);
 }
 
-final complianceProvider = StateNotifierProvider<ComplianceNotifier, ComplianceState>(
-    (ref) => ComplianceNotifier());
+final complianceProvider = StateNotifierProvider<ComplianceNotifier, ComplianceState>((ref) {
+  final geminiService = ref.watch(geminiProvider);
+  final fbService = ref.watch(firebaseProvider);
+  return ComplianceNotifier(geminiService, fbService);
+});

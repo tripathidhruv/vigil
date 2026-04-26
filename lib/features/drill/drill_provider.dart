@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/animations/severity_pulse_badge.dart';
+import '../../services/gemini_service.dart';
 
 // ── Models ───────────────────────────────────────────────────────────────────
 
@@ -57,7 +58,7 @@ const List<DrillScenario> kDrillScenarios = [
   ),
 ];
 
-enum DrillPhase { selecting, active, completed }
+enum DrillPhase { selecting, active, completed, generating_feedback }
 
 class DrillState {
   final DrillPhase phase;
@@ -65,6 +66,8 @@ class DrillState {
   final int timerSeconds;
   final int score;
   final String feedback;
+  final String currentEvent;
+  final String? errorMessage;
 
   const DrillState({
     this.phase = DrillPhase.selecting,
@@ -72,6 +75,8 @@ class DrillState {
     this.timerSeconds = 0,
     this.score = 0,
     this.feedback = '',
+    this.currentEvent = '',
+    this.errorMessage,
   });
 
   DrillState copyWith({
@@ -80,6 +85,8 @@ class DrillState {
     int? timerSeconds,
     int? score,
     String? feedback,
+    String? currentEvent,
+    String? errorMessage,
   }) =>
       DrillState(
         phase: phase ?? this.phase,
@@ -87,44 +94,90 @@ class DrillState {
         timerSeconds: timerSeconds ?? this.timerSeconds,
         score: score ?? this.score,
         feedback: feedback ?? this.feedback,
+        currentEvent: currentEvent ?? this.currentEvent,
+        errorMessage: errorMessage ?? this.errorMessage,
       );
 }
 
 // ── Notifier ──────────────────────────────────────────────────────────────────
 
 class DrillNotifier extends StateNotifier<DrillState> {
-  DrillNotifier() : super(const DrillState());
+  final GeminiService _geminiService;
+
+  DrillNotifier(this._geminiService) : super(const DrillState());
 
   Timer? _timer;
 
   void startDrill(DrillScenario scenario) {
-    state = DrillState(phase: DrillPhase.active, scenario: scenario);
+    state = DrillState(
+      phase: DrillPhase.active,
+      scenario: scenario,
+      currentEvent: 'Simulation initialized...',
+    );
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
-      state = state.copyWith(timerSeconds: state.timerSeconds + 1);
+      
+      final nextSec = state.timerSeconds + 1;
+      if (nextSec >= 30) {
+        completeDrill();
+        return;
+      }
+
+      String event = state.currentEvent;
+      if (nextSec == 5) event = 'First responders dispatched...';
+      if (nextSec == 12) event = 'On-site containment initiated...';
+      if (nextSec == 20) event = 'Evacuation protocols active...';
+      if (nextSec == 26) event = 'Securing area for final assessment...';
+
+      state = state.copyWith(timerSeconds: nextSec, currentEvent: event);
     });
   }
 
   Future<void> completeDrill() async {
+    if (state.phase == DrillPhase.generating_feedback || state.phase == DrillPhase.completed) return;
     _timer?.cancel();
-    state = state.copyWith(phase: DrillPhase.completed);
-    await Future.delayed(const Duration(milliseconds: 800));
-    // Calculate score based on time vs target
-    final target = (state.scenario?.durationMin ?? 10) * 60;
-    final actual = state.timerSeconds;
-    final ratio = actual / target;
-    final score = ratio <= 1.0
-        ? 100
-        : ratio <= 1.2
-            ? 85
-            : ratio <= 1.5
-                ? 70
-                : 55;
-    const feedback =
-        'Good response time. Communication between departments was effective. '
-        'Consider pre-assigning roles before drills. Fire safety team was '
-        'well-coordinated. Recommended: repeat in 30 days.';
-    state = state.copyWith(score: score, feedback: feedback);
+    state = state.copyWith(phase: DrillPhase.generating_feedback);
+    
+    try {
+      final target = (state.scenario?.durationMin ?? 10) * 60;
+      final actual = state.timerSeconds;
+      final ratio = actual / target;
+      
+      int score = 100;
+      List<String> issues = [];
+
+      if (ratio > 1.0) {
+        score = 85;
+        issues.add('Target resolution time exceeded by ${actual - target} seconds');
+      }
+      if (ratio > 1.2) {
+        score = 70;
+        issues.add('Significant delay in final containment');
+      }
+      if (ratio > 1.5) {
+        score = 55;
+        issues.add('Critically slow response time, high risk of escalation');
+      }
+
+      final feedback = await _geminiService.generateDrillFeedback(
+        score, 
+        state.scenario?.title ?? 'Unknown Drill', 
+        issues.isEmpty ? ['Perfect execution, no major issues noted.'] : issues
+      );
+
+      state = state.copyWith(
+        phase: DrillPhase.completed,
+        score: score,
+        feedback: feedback,
+      );
+    } catch (e) {
+      state = state.copyWith(
+        phase: DrillPhase.completed,
+        score: 0,
+        errorMessage: 'Failed to generate feedback: $e',
+        feedback: 'Drill complete. System error preventing AI feedback generation.',
+      );
+    }
   }
 
   void reset() {
@@ -139,5 +192,7 @@ class DrillNotifier extends StateNotifier<DrillState> {
   }
 }
 
-final drillProvider =
-    StateNotifierProvider<DrillNotifier, DrillState>((ref) => DrillNotifier());
+final drillProvider = StateNotifierProvider<DrillNotifier, DrillState>((ref) {
+  final geminiService = ref.watch(geminiProvider);
+  return DrillNotifier(geminiService);
+});

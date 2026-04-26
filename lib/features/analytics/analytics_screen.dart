@@ -224,6 +224,12 @@ class AnalyticsScreen extends ConsumerWidget {
         context.go('/notifications');
       case VigilTab.profile:
         context.go('/profile');
+      case VigilTab.myTasks:
+        context.go('/staff-home');
+      case VigilTab.guestHome:
+        context.go('/guest-home');
+      default:
+        break;
     }
   }
 }

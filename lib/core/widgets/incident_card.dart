@@ -3,27 +3,9 @@ import '../animations/severity_pulse_badge.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_typography.dart';
 import 'glass_card.dart';
+import 'package:go_router/go_router.dart';
 
-/// Incident model used across the app.
-class IncidentModel {
-  final String id;
-  final String title;
-  final String location;
-  final String timeAgo;
-  final CrisisSeverity severity;
-  final int assignedCount;
-  final bool isActive;
-
-  const IncidentModel({
-    required this.id,
-    required this.title,
-    required this.location,
-    required this.timeAgo,
-    required this.severity,
-    this.assignedCount = 0,
-    this.isActive = true,
-  });
-}
+import '../../models/incident_model.dart';
 
 /// A bento-grid incident card for the dashboard and war room list.
 class IncidentCard extends StatelessWidget {
@@ -49,14 +31,14 @@ class IncidentCard extends StatelessWidget {
       borderColor: borderColor,
       glowColor: glowColor,
       padding: EdgeInsets.all(compact ? 12 : 16),
-      onTap: onTap,
+      onTap: onTap ?? () => context.push('/incident/${incident.id}'),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
               SeverityPulseBadge(
-                severity: incident.severity,
+                severity: incident.crisisSeverity,
                 compact: compact,
               ),
               const Spacer(),

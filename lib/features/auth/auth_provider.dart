@@ -1,40 +1,41 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../models/user_model.dart';
 
+enum UserRole { manager, staff, guest }
 enum AuthStatus { idle, loading, success, error }
-
-enum UserRole { manager, staff }
 
 class AuthState {
   final AuthStatus status;
   final String? errorMessage;
-  final String? userEmail;
-  final String? userName;
-  final UserRole role;
+  final UserModel? user;
   final bool isLoggedIn;
+
+  UserRole get role {
+    if (user?.role == 'manager') return UserRole.manager;
+    if (user?.role == 'guest') return UserRole.guest;
+    return UserRole.staff;
+  }
+  
+  String? get userName => user?.name;
+  String? get userEmail => user?.email;
 
   const AuthState({
     this.status = AuthStatus.idle,
     this.errorMessage,
-    this.userEmail,
-    this.userName,
-    this.role = UserRole.manager,
+    this.user,
     this.isLoggedIn = false,
   });
 
   AuthState copyWith({
     AuthStatus? status,
     String? errorMessage,
-    String? userEmail,
-    String? userName,
-    UserRole? role,
+    UserModel? user,
     bool? isLoggedIn,
   }) =>
       AuthState(
         status: status ?? this.status,
         errorMessage: errorMessage ?? this.errorMessage,
-        userEmail: userEmail ?? this.userEmail,
-        userName: userName ?? this.userName,
-        role: role ?? this.role,
+        user: user ?? this.user,
         isLoggedIn: isLoggedIn ?? this.isLoggedIn,
       );
 }
@@ -42,28 +43,58 @@ class AuthState {
 class AuthNotifier extends StateNotifier<AuthState> {
   AuthNotifier() : super(const AuthState());
 
-  Future<void> signIn(String email, String password) async {
-    state = state.copyWith(status: AuthStatus.loading);
-    await Future.delayed(const Duration(milliseconds: 1200));
-    final isManager = !email.toLowerCase().contains('staff');
-    state = state.copyWith(
-      status: AuthStatus.success,
-      userEmail: email,
-      userName: isManager ? 'James Harrington' : 'Sarah Chen',
-      role: isManager ? UserRole.manager : UserRole.staff,
-      isLoggedIn: true,
-    );
+  void signIn(String email, String password) {
+    if (email == 'manager@vigil.com' && password == 'manager123') {
+      state = state.copyWith(
+        status: AuthStatus.success,
+        isLoggedIn: true,
+        user: const UserModel(
+          uid: 'manager-uid',
+          email: 'manager@vigil.com',
+          name: 'Hotel Manager',
+          role: 'manager',
+          onDuty: true,
+          department: 'Management',
+        ),
+      );
+    } else if (email == 'staff@vigil.com' && password == 'staff123') {
+      state = state.copyWith(
+        status: AuthStatus.success,
+        isLoggedIn: true,
+        user: const UserModel(
+          uid: 'staff_001',
+          email: 'staff@vigil.com',
+          name: 'James Harrington',
+          role: 'staff',
+          onDuty: true,
+          department: 'Operations',
+        ),
+      );
+    } else if (email == 'guest@vigil.com' && password == 'guest123') {
+      state = state.copyWith(
+        status: AuthStatus.success,
+        isLoggedIn: true,
+        user: const UserModel(
+          uid: 'guest-uid',
+          email: 'guest@vigil.com',
+          name: 'Guest User',
+          role: 'guest',
+          onDuty: false,
+          department: 'Guest',
+        ),
+      );
+    } else {
+      state = state.copyWith(
+        status: AuthStatus.error,
+        errorMessage: 'Invalid credentials. Please check the hint.',
+      );
+    }
   }
 
-  Future<void> register(String email, String password, String name) async {
-    state = state.copyWith(status: AuthStatus.loading);
-    await Future.delayed(const Duration(milliseconds: 1200));
+  void register(String email, String password, String name) {
     state = state.copyWith(
-      status: AuthStatus.success,
-      userEmail: email,
-      userName: name.isEmpty ? 'New User' : name,
-      role: UserRole.manager,
-      isLoggedIn: true,
+      status: AuthStatus.error,
+      errorMessage: 'Registration is disabled in local mode.',
     );
   }
 
@@ -72,5 +103,6 @@ class AuthNotifier extends StateNotifier<AuthState> {
   }
 }
 
-final authProvider =
-    StateNotifierProvider<AuthNotifier, AuthState>((ref) => AuthNotifier());
+final authProvider = StateNotifierProvider<AuthNotifier, AuthState>((ref) {
+  return AuthNotifier();
+});

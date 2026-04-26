@@ -6,6 +6,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/widgets/glass_card.dart';
 import '../../core/widgets/vigil_bottom_nav.dart';
+import '../../models/notification_model.dart';
 import 'notifications_provider.dart';
 
 class NotificationsScreen extends ConsumerWidget {
@@ -13,8 +14,8 @@ class NotificationsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final notifs = ref.watch(notificationsProvider);
-    final notifier = ref.read(notificationsProvider.notifier);
+    final notifsAsync = ref.watch(notificationsProvider);
+    final notifier = ref.read(notificationsActionProvider);
 
     return Scaffold(
       bottomNavigationBar: VigilBottomNav(
@@ -65,102 +66,106 @@ class NotificationsScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 12),
             Expanded(
-              child: notifs.isEmpty
-                  ? const Center(
-                      child: Text('No notifications',
-                          style: TextStyle(
-                              fontFamily: 'Inter',
-                              color: AppColors.textMuted)))
-                  : ListView.separated(
-                      padding:
-                          const EdgeInsets.fromLTRB(20, 0, 20, 100),
-                      itemCount: notifs.length,
-                      separatorBuilder: (_, __) =>
-                          const SizedBox(height: 8),
-                      itemBuilder: (_, i) {
-                        final n = notifs[i];
-                        return Dismissible(
-                          key: ValueKey(n.id),
-                          direction: DismissDirection.endToStart,
-                          onDismissed: (_) => notifier.dismiss(n.id),
-                          background: Container(
-                            alignment: Alignment.centerRight,
-                            padding: const EdgeInsets.only(right: 20),
-                            decoration: BoxDecoration(
-                              color: AppColors.crisisRedDim,
-                              borderRadius: BorderRadius.circular(12),
+              child: notifsAsync.when(
+                data: (notifs) => notifs.isEmpty
+                    ? const Center(
+                        child: Text('No notifications',
+                            style: TextStyle(
+                                fontFamily: 'Inter',
+                                color: AppColors.textMuted)))
+                    : ListView.separated(
+                        padding:
+                            const EdgeInsets.fromLTRB(20, 0, 20, 100),
+                        itemCount: notifs.length,
+                        separatorBuilder: (_, __) =>
+                            const SizedBox(height: 8),
+                        itemBuilder: (_, i) {
+                          final n = notifs[i];
+                          return Dismissible(
+                            key: ValueKey(n.id),
+                            direction: DismissDirection.endToStart,
+                            onDismissed: (_) => notifier.dismiss(n.id),
+                            background: Container(
+                              alignment: Alignment.centerRight,
+                              padding: const EdgeInsets.only(right: 20),
+                              decoration: BoxDecoration(
+                                color: AppColors.crisisRedDim,
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: const Icon(Icons.delete_outline,
+                                  color: AppColors.crisisRed),
                             ),
-                            child: const Icon(Icons.delete_outline,
-                                color: AppColors.crisisRed),
-                          ),
-                          child: GestureDetector(
-                            onTap: () => notifier.markRead(n.id),
-                            child: GlassCard(
-                              borderColor: n.isRead
-                                  ? AppColors.borderDefault
-                                  : _typeColor(n.type).withOpacity(0.35),
-                              child: Row(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.start,
-                                  children: [
-                                Container(
-                                  width: 38, height: 38,
-                                  decoration: BoxDecoration(
-                                    color: _typeColor(n.type)
-                                        .withOpacity(0.12),
-                                    borderRadius:
-                                        BorderRadius.circular(10),
+                            child: GestureDetector(
+                              onTap: () => notifier.markRead(n.id),
+                              child: GlassCard(
+                                borderColor: n.isRead
+                                    ? AppColors.borderDefault
+                                    : _typeColor(n.type).withOpacity(0.35),
+                                child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                  Container(
+                                    width: 38, height: 38,
+                                    decoration: BoxDecoration(
+                                      color: _typeColor(n.type)
+                                          .withOpacity(0.12),
+                                      borderRadius:
+                                          BorderRadius.circular(10),
+                                    ),
+                                    child: Icon(_typeIcon(n.type),
+                                        size: 18,
+                                        color: _typeColor(n.type)),
                                   ),
-                                  child: Icon(_typeIcon(n.type),
-                                      size: 18,
-                                      color: _typeColor(n.type)),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                    Row(children: [
-                                      Expanded(
-                                        child: Text(n.title,
-                                            style: TextStyle(
-                                              fontFamily: 'Inter',
-                                              fontSize: 13,
-                                              fontWeight:
-                                                  FontWeight.w700,
-                                              color: n.isRead
-                                                  ? AppColors
-                                                      .textSecondary
-                                                  : AppColors
-                                                      .textPrimary,
-                                            )),
-                                      ),
-                                      if (!n.isRead)
-                                        Container(
-                                          width: 8, height: 8,
-                                          decoration: BoxDecoration(
-                                            color: _typeColor(n.type),
-                                            shape: BoxShape.circle,
-                                          ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                      Row(children: [
+                                        Expanded(
+                                          child: Text(n.title,
+                                              style: TextStyle(
+                                                fontFamily: 'Inter',
+                                                fontSize: 13,
+                                                fontWeight:
+                                                    FontWeight.w700,
+                                                color: n.isRead
+                                                    ? AppColors
+                                                        .textSecondary
+                                                    : AppColors
+                                                        .textPrimary,
+                                              )),
                                         ),
+                                        if (!n.isRead)
+                                          Container(
+                                            width: 8, height: 8,
+                                            decoration: BoxDecoration(
+                                              color: _typeColor(n.type),
+                                              shape: BoxShape.circle,
+                                            ),
+                                          ),
+                                      ]),
+                                      const SizedBox(height: 3),
+                                      Text(n.body,
+                                          style: AppTypography.bodySmall
+                                              .copyWith(height: 1.4)),
+                                      const SizedBox(height: 5),
+                                      Text(n.timeAgo,
+                                          style: AppTypography.mono
+                                              .copyWith(fontSize: 10)),
                                     ]),
-                                    const SizedBox(height: 3),
-                                    Text(n.body,
-                                        style: AppTypography.bodySmall
-                                            .copyWith(height: 1.4)),
-                                    const SizedBox(height: 5),
-                                    Text(n.timeAgo,
-                                        style: AppTypography.mono
-                                            .copyWith(fontSize: 10)),
-                                  ]),
-                                ),
-                              ]),
+                                  ),
+                                ]),
+                              ),
                             ),
-                          ),
-                        );
-                      },
-                    ),
+                          );
+                        },
+                      ),
+                loading: () => const Center(child: CircularProgressIndicator(color: AppColors.commandBlue)),
+                error: (e, _) => Center(child: Text('Error: $e', style: const TextStyle(color: Colors.red))),
+              ),
             ),
           ]),
         ),
@@ -194,6 +199,12 @@ class NotificationsScreen extends ConsumerWidget {
         break;
       case VigilTab.profile:
         context.go('/profile');
+      case VigilTab.myTasks:
+        context.go('/staff-home');
+      case VigilTab.guestHome:
+        context.go('/guest-home');
+      default:
+        break;
     }
   }
 }

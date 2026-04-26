@@ -1,41 +1,61 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
-// ── Models ───────────────────────────────────────────────────────────────────
+import '../../services/firebase_service.dart';
 
 enum SensorStatus { normal, warning, alert, offline }
 
 class SensorData {
   final String id;
-  final String label;
-  final String room;
-  // Relative positions (0.0–1.0 of canvas)
-  final double rx;
-  final double ry;
+  final String name;
   final SensorStatus status;
+  final double x;
+  final double y;
+  final int floor;
 
   const SensorData({
     required this.id,
-    required this.label,
-    required this.room,
-    required this.rx,
-    required this.ry,
+    required this.name,
     required this.status,
+    required this.x,
+    required this.y,
+    required this.floor,
   });
+
+  // Legacy mappings for UI compatibility
+  String get label => name;
+  String get room => 'Floor $floor';
+  double get rx => x;
+  double get ry => y;
+
+  factory SensorData.fromFirestore(var doc) {
+    final d = doc.data() as Map<String, dynamic>;
+    return SensorData(
+      id: doc.id,
+      name: d['label'] as String? ?? 'Sensor',
+      status: _statusFromString(d['status'] as String? ?? 'normal'),
+      x: (d['rx'] as num?)?.toDouble() ?? 0.0,
+      y: (d['ry'] as num?)?.toDouble() ?? 0.0,
+      floor: 2,
+    );
+  }
+
+  static SensorStatus _statusFromString(String s) {
+    switch (s) {
+      case 'warning': return SensorStatus.warning;
+      case 'alert': return SensorStatus.alert;
+      case 'offline': return SensorStatus.offline;
+      default: return SensorStatus.normal;
+    }
+  }
+
+  Map<String, dynamic> toMap() => {
+        'label': name,
+        'rx': x,
+        'ry': y,
+        'status': status.name,
+      };
 }
 
-// ── Mock data ─────────────────────────────────────────────────────────────────
-
-const List<SensorData> kFloorSensors = [
-  SensorData(id: 's1', label: 'Smoke', room: 'Kitchen', rx: 0.70, ry: 0.28, status: SensorStatus.alert),
-  SensorData(id: 's2', label: 'Heat', room: 'Kitchen', rx: 0.82, ry: 0.32, status: SensorStatus.alert),
-  SensorData(id: 's3', label: 'Smoke', room: 'Lobby', rx: 0.22, ry: 0.55, status: SensorStatus.normal),
-  SensorData(id: 's4', label: 'Motion', room: 'Corridor A', rx: 0.45, ry: 0.50, status: SensorStatus.normal),
-  SensorData(id: 's5', label: 'Smoke', room: 'Room 101', rx: 0.20, ry: 0.28, status: SensorStatus.normal),
-  SensorData(id: 's6', label: 'Smoke', room: 'Room 102', rx: 0.38, ry: 0.28, status: SensorStatus.normal),
-  SensorData(id: 's7', label: 'CO2', room: 'Corridor B', rx: 0.55, ry: 0.72, status: SensorStatus.warning),
-  SensorData(id: 's8', label: 'Door', room: 'Fire Exit', rx: 0.88, ry: 0.68, status: SensorStatus.offline),
-];
-
-// ── Provider ──────────────────────────────────────────────────────────────────
-
-final floorSensorsProvider = Provider<List<SensorData>>((ref) => kFloorSensors);
+final floorSensorsProvider = StreamProvider<List<SensorData>>((ref) {
+  final fbService = ref.watch(firebaseProvider);
+  return fbService.streamSensors();
+});

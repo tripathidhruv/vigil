@@ -85,6 +85,8 @@ class DrillModeScreen extends ConsumerWidget {
         return _ActiveDrill(ref: ref, state: state);
       case DrillPhase.completed:
         return _DrillResult(context: context, ref: ref, state: state);
+      case DrillPhase.generating_feedback:
+        return const Center(child: CircularProgressIndicator(color: AppColors.intelViolet));
     }
   }
 }
@@ -127,7 +129,7 @@ class _ScenarioSelector extends StatelessWidget {
         return Padding(
           padding: const EdgeInsets.only(bottom: 12),
           child: SlideUpReveal(
-            delay: Duration(milliseconds: 140 + e.key * 60),
+            delay: Duration(milliseconds: (140 + e.key * 60).toInt()),
             child: GestureDetector(
               onTap: () =>
                   ref.read(drillProvider.notifier).startDrill(s),
@@ -196,7 +198,7 @@ class _ActiveDrill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final target = (state.scenario?.durationMin ?? 10) * 60;
+    final target = 30; // 30 second simulation
     final progress = (state.timerSeconds / target).clamp(0.0, 1.0);
 
     return Column(children: [
@@ -241,7 +243,33 @@ class _ActiveDrill extends StatelessWidget {
           ]),
         ]),
       ),
-      const SizedBox(height: 40),
+      const SizedBox(height: 30),
+      
+      // Current Event Log
+      Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: AppColors.intelViolet.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: AppColors.intelViolet.withOpacity(0.3)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.info_outline, size: 16, color: AppColors.intelViolet),
+            const SizedBox(width: 8),
+            Text(
+              state.currentEvent.isEmpty ? 'Waiting for events...' : state.currentEvent,
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 13,
+                color: AppColors.intelViolet,
+              ),
+            ),
+          ],
+        ),
+      ),
+      const SizedBox(height: 30),
 
       GestureDetector(
         onTap: () => ref.read(drillProvider.notifier).completeDrill(),

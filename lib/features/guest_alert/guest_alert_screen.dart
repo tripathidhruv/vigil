@@ -8,13 +8,60 @@ import '../../core/theme/app_typography.dart';
 import '../../core/widgets/glass_card.dart';
 import 'alert_provider.dart';
 
-class GuestAlertScreen extends ConsumerWidget {
-  const GuestAlertScreen({super.key});
+class GuestAlertScreen extends ConsumerStatefulWidget {
+  final String? incidentId;
+  const GuestAlertScreen({super.key, this.incidentId});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<GuestAlertScreen> createState() => _GuestAlertScreenState();
+}
+
+class _GuestAlertScreenState extends ConsumerState<GuestAlertScreen> {
+  late final TextEditingController _msgCtrl;
+  bool _isTranslating = false;
+
+  Future<void> _translate() async {
+    setState(() => _isTranslating = true);
+    await ref.read(guestAlertProvider.notifier).translate();
+    if (mounted) {
+      setState(() => _isTranslating = false);
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    // Pre-fill demo message
+    final initialMsg = 'Please remain calm. Hotel management has the situation under control. Please remain in your room.';
+    _msgCtrl = TextEditingController(text: initialMsg);
+    // Sync with state initially without triggering build during init
+    Future.microtask(() {
+      ref.read(guestAlertProvider.notifier).setMessage(initialMsg);
+    });
+  }
+
+  @override
+  void dispose() {
+    _msgCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final state = ref.watch(guestAlertProvider);
     final notifier = ref.read(guestAlertProvider.notifier);
+
+    ref.listen<GuestAlertState>(guestAlertProvider, (_, next) {
+      if (next.phase == AlertSendPhase.sent && state.phase != AlertSendPhase.sent) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Alert sent to all guests on Floor 2', style: TextStyle(color: Colors.white)),
+            backgroundColor: AppColors.safeGreen,
+            behavior: SnackBarBehavior.floating,
+          )
+        );
+      }
+    });
 
     return Scaffold(
       body: AuroraBackground(
@@ -29,7 +76,13 @@ class GuestAlertScreen extends ConsumerWidget {
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
               child: Row(children: [
                 GestureDetector(
-                  onTap: () => context.go('/crisis-command'),
+                  onTap: () {
+                    if (widget.incidentId != null) {
+                      context.go('/crisis-command/${widget.incidentId}');
+                    } else {
+                      context.go('/dashboard');
+                    }
+                  },
                   child: Container(
                     width: 40, height: 40,
                     decoration: BoxDecoration(
@@ -127,6 +180,7 @@ class GuestAlertScreen extends ConsumerWidget {
       SlideUpReveal(
         delay: const Duration(milliseconds: 160),
         child: TextField(
+          controller: _msgCtrl,
           maxLines: 4,
           onChanged: notifier.setMessage,
           style: const TextStyle(
@@ -184,7 +238,7 @@ class GuestAlertScreen extends ConsumerWidget {
       const SizedBox(height: 20),
 
       // Translation Preview
-      if (state.phase == AlertSendPhase.translating)
+      if (_isTranslating)
         GlassCard(
           child: Row(children: [
             const SizedBox(
@@ -231,20 +285,25 @@ class GuestAlertScreen extends ConsumerWidget {
       Row(children: [
         Expanded(
           child: GestureDetector(
-            onTap: state.phase == AlertSendPhase.translating
+            onTap: _isTranslating
                 ? null
-                : notifier.translate,
+                : _translate,
             child: GlassCard(
               padding: const EdgeInsets.symmetric(vertical: 16),
               borderColor: AppColors.intelViolet.withOpacity(0.4),
               child: Center(
-                child: Text('TRANSLATE',
-                    style: TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.intelViolet,
-                        letterSpacing: 1.5)),
+                child: _isTranslating
+                    ? const SizedBox(
+                        width: 18, height: 18,
+                        child: CircularProgressIndicator(
+                            strokeWidth: 2, color: AppColors.intelViolet))
+                    : const Text('TRANSLATE',
+                        style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.intelViolet,
+                            letterSpacing: 1.5)),
               ),
             ),
           ),
@@ -327,7 +386,11 @@ class GuestAlertScreen extends ConsumerWidget {
       GestureDetector(
         onTap: () {
           ref.read(guestAlertProvider.notifier).reset();
-          context.go('/crisis-command');
+          if (widget.incidentId != null) {
+            context.go('/crisis-command/${widget.incidentId}');
+          } else {
+            context.go('/dashboard');
+          }
         },
         child: GlassCard(
           padding: const EdgeInsets.symmetric(vertical: 16),

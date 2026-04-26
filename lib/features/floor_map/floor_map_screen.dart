@@ -43,7 +43,8 @@ class _FloorMapScreenState extends ConsumerState<FloorMapScreen>
 
   @override
   Widget build(BuildContext context) {
-    final sensors = ref.watch(floorSensorsProvider);
+    final sensorsAsync = ref.watch(floorSensorsProvider);
+    final sensors = sensorsAsync.valueOrNull ?? [];
 
     return Scaffold(
       bottomNavigationBar: VigilBottomNav(
@@ -109,7 +110,7 @@ class _FloorMapScreenState extends ConsumerState<FloorMapScreen>
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 20),
               child: Row(children: [
-                for (final f in [1, 2, 3, 4, 5])
+                for (final f in [0, 1, 2, 4])
                   Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: GestureDetector(
@@ -173,17 +174,26 @@ class _FloorMapScreenState extends ConsumerState<FloorMapScreen>
                           painter: _FloorGridPainter(),
                         ),
                         // Room labels
-                        _roomLabel('Room 101', 0.05, 0.10, box),
-                        _roomLabel('Room 102', 0.28, 0.10, box),
-                        _roomLabel('Lobby', 0.05, 0.42, box),
-                        _roomLabel('Corridor A', 0.35, 0.42, box),
-                        _roomLabel('KITCHEN 🔥', 0.60, 0.10, box,
-                            color: AppColors.crisisRed),
-                        _roomLabel('Corridor B', 0.42, 0.65, box),
-                        _roomLabel('Fire Exit', 0.78, 0.60, box),
+                        _roomLabel('101', 0.08, 0.06, box),
+                        _roomLabel('102', 0.28, 0.06, box),
+                        _roomLabel('103', 0.08, 0.21, box),
+                        _roomLabel('104', 0.28, 0.21, box),
+                        _roomLabel('ELEVATORS', 0.08, 0.44, box, color: AppColors.commandBlue.withOpacity(0.8)),
+                        _roomLabel('STAIRS A', 0.82, 0.04, box, color: AppColors.commandBlue.withOpacity(0.8)),
+                        _roomLabel('STAIRS B', 0.06, 0.88, box, color: AppColors.commandBlue.withOpacity(0.8)),
+                        _roomLabel('LOBBY AREA', 0.35, 0.44, box),
+                        _roomLabel('KITCHEN 🔥', 0.65, 0.20, box, color: AppColors.crisisRed, size: 12),
+                        _roomLabel('RESTAURANT', 0.65, 0.44, box),
+                        _roomLabel('CORRIDOR A', 0.35, 0.14, box),
+                        _roomLabel('CORRIDOR B', 0.35, 0.76, box),
+                        _roomLabel('GYM', 0.65, 0.70, box),
+                        _roomLabel('POOL', 0.65, 0.88, box, color: AppColors.statusTeal),
+                        _roomLabel('RESTROOMS', 0.35, 0.60, box),
 
                         // Sensors
-                        ...sensors.map((s) {
+                        if (sensorsAsync.isLoading && sensors.isEmpty)
+                          const Center(child: CircularProgressIndicator(color: AppColors.statusTeal))
+                        else ...sensors.where((s) => s.floor == _selectedFloor).map((s) {
                           final x = s.rx * box.maxWidth;
                           final y = s.ry * box.maxHeight;
                           final c = _statusColor(s.status);
@@ -319,14 +329,14 @@ class _FloorMapScreenState extends ConsumerState<FloorMapScreen>
 
   Widget _roomLabel(
       String label, double rx, double ry, BoxConstraints box,
-      {Color? color}) =>
+      {Color? color, double size = 10}) =>
       Positioned(
         left: rx * box.maxWidth,
         top: ry * box.maxHeight,
         child: Text(label,
             style: TextStyle(
                 fontFamily: 'Inter',
-                fontSize: 10,
+                fontSize: size,
                 fontWeight: FontWeight.w600,
                 color: color ?? AppColors.textMuted.withOpacity(0.55))),
       );
@@ -343,6 +353,12 @@ class _FloorMapScreenState extends ConsumerState<FloorMapScreen>
         context.go('/notifications');
       case VigilTab.profile:
         context.go('/profile');
+      case VigilTab.myTasks:
+        context.go('/staff-home');
+      case VigilTab.guestHome:
+        context.go('/guest-home');
+      default:
+        break;
     }
   }
 }
@@ -357,36 +373,88 @@ class _FloorGridPainter extends CustomPainter {
 
     final wall = Paint()
       ..color = AppColors.borderDefault.withOpacity(0.6)
-      ..strokeWidth = 1.5
+      ..strokeWidth = 2.0
+      ..style = PaintingStyle.stroke;
+
+    final thinWall = Paint()
+      ..color = AppColors.borderDefault.withOpacity(0.35)
+      ..strokeWidth = 1.0
       ..style = PaintingStyle.stroke;
 
     // Outer boundary
-    canvas.drawRect(
-        Rect.fromLTRB(10, 10, size.width - 10, size.height - 10), wall);
+    canvas.drawRect(Rect.fromLTRB(10, 10, size.width - 10, size.height - 10), wall);
 
-    // Room dividers
-    final mid = Paint()
-      ..color = AppColors.borderDefault.withOpacity(0.35)
-      ..strokeWidth = 1;
-    // Vertical
-    canvas.drawLine(Offset(size.width * 0.5, 10),
-        Offset(size.width * 0.5, size.height * 0.35), mid);
-    // Horizontal mid
-    canvas.drawLine(Offset(10, size.height * 0.35),
-        Offset(size.width - 10, size.height * 0.35), mid);
-    // Horizontal bottom
-    canvas.drawLine(Offset(10, size.height * 0.60),
-        Offset(size.width - 10, size.height * 0.60), mid);
+    // Corridors
+    canvas.drawRect(Rect.fromLTRB(size.width * 0.45, 10, size.width * 0.55, size.height - 10), thinWall); // Vertical Main Corridor
+    canvas.drawRect(Rect.fromLTRB(10, size.height * 0.35, size.width - 10, size.height * 0.55), thinWall); // Horizontal Main Corridor
+
+    // Left Wing Rooms (101, 102, 103, 104)
+    canvas.drawLine(Offset(10, size.height * 0.175), Offset(size.width * 0.45, size.height * 0.175), thinWall);
+    canvas.drawLine(Offset(size.width * 0.225, 10), Offset(size.width * 0.225, size.height * 0.35), thinWall);
+
+    // Elevators
+    final elevRect = Rect.fromLTRB(10, size.height * 0.40, size.width * 0.25, size.height * 0.50);
+    canvas.drawRect(elevRect, wall);
+    canvas.drawLine(elevRect.topLeft, elevRect.bottomRight, thinWall);
+    canvas.drawLine(elevRect.topRight, elevRect.bottomLeft, thinWall);
+
+    // Stairs A
+    final stairsARect = Rect.fromLTRB(size.width * 0.80, 10, size.width - 10, size.height * 0.15);
+    canvas.drawRect(stairsARect, wall);
+    for (int i = 1; i < 6; i++) {
+      canvas.drawLine(
+        Offset(stairsARect.left, stairsARect.top + (stairsARect.height / 6) * i),
+        Offset(stairsARect.right, stairsARect.top + (stairsARect.height / 6) * i),
+        thinWall,
+      );
+    }
+
+    // Stairs B
+    final stairsBRect = Rect.fromLTRB(10, size.height * 0.85, size.width * 0.25, size.height - 10);
+    canvas.drawRect(stairsBRect, wall);
+    for (int i = 1; i < 6; i++) {
+      canvas.drawLine(
+        Offset(stairsBRect.left, stairsBRect.top + (stairsBRect.height / 6) * i),
+        Offset(stairsBRect.right, stairsBRect.top + (stairsBRect.height / 6) * i),
+        thinWall,
+      );
+    }
+
+    // Kitchen
+    final kitchenRect = Rect.fromLTRB(size.width * 0.55, 10, size.width * 0.80, size.height * 0.35);
+    canvas.drawRect(kitchenRect, wall);
 
     // Kitchen hatching (alert zone)
     final hatch = Paint()
-      ..color = AppColors.crisisRed.withOpacity(0.04)
-      ..strokeWidth = 1;
-    for (int i = 0; i < 12; i++) {
-      final x = size.width * 0.5 + i * 14.0;
-      canvas.drawLine(
-          Offset(x, 10), Offset(x + 60, size.height * 0.35), hatch);
+      ..color = AppColors.crisisRed.withOpacity(0.06)
+      ..strokeWidth = 1.5;
+    for (int i = 0; i < 20; i++) {
+      final x = kitchenRect.left + i * 10.0;
+      if (x < kitchenRect.right) {
+        canvas.drawLine(Offset(x, kitchenRect.top), Offset(x + 30, kitchenRect.bottom), hatch);
+      }
     }
+
+    // Restaurant
+    canvas.drawRect(Rect.fromLTRB(size.width * 0.55, size.height * 0.35, size.width - 10, size.height * 0.55), thinWall);
+
+    // Restrooms
+    canvas.drawRect(Rect.fromLTRB(size.width * 0.25, size.height * 0.55, size.width * 0.45, size.height * 0.70), thinWall);
+    canvas.drawLine(Offset(size.width * 0.35, size.height * 0.55), Offset(size.width * 0.35, size.height * 0.70), thinWall);
+
+    // Gym
+    canvas.drawRect(Rect.fromLTRB(size.width * 0.55, size.height * 0.55, size.width - 10, size.height * 0.80), thinWall);
+
+    // Pool
+    final poolRect = Rect.fromLTRB(size.width * 0.55, size.height * 0.80, size.width - 10, size.height - 10);
+    canvas.drawRect(poolRect, thinWall);
+    
+    // Pool water waves
+    final water = Paint()
+      ..color = AppColors.statusTeal.withOpacity(0.1)
+      ..strokeWidth = 2.0
+      ..style = PaintingStyle.fill;
+    canvas.drawRect(poolRect.deflate(5), water);
   }
 
   @override

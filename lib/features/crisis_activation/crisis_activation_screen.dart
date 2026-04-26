@@ -69,9 +69,7 @@ class _CrisisActivationScreenState
     // On confirmation navigate to command centre
     ref.listen(activationProvider, (_, next) {
       if (next.phase == ActivationPhase.confirmed) {
-        Future.delayed(const Duration(milliseconds: 1600), () {
-          if (mounted) context.go('/crisis-command');
-        });
+        if (mounted) context.go('/crisis-command/${next.incidentId}');
       }
     });
 

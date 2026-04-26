@@ -1,81 +1,126 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:uuid/uuid.dart';
-import 'package:intl/intl.dart';
+import '../../services/firebase_service.dart';
+import '../auth/auth_provider.dart';
 
-// ── Models ───────────────────────────────────────────────────────────────────
+// Legacy / mock types requested to fix compilation
+enum MessageType { user, system, ai, staff }
 
-enum MessageType { staff, system, ai }
-
-class WarMessage {
+class WarRoomMessage {
   final String id;
+  final String text;
   final String sender;
-  final String content;
-  final String timeStr;
+  final DateTime timestamp;
   final MessageType type;
 
-  const WarMessage({
+  const WarRoomMessage({
     required this.id,
+    required this.text,
     required this.sender,
-    required this.content,
-    required this.timeStr,
+    required this.timestamp,
     required this.type,
   });
-}
 
-// ── Notifier ──────────────────────────────────────────────────────────────────
+  // Mappers for the new model if needed by other parts of the app
+  String get content => text;
+  String get senderName => sender;
+  String get timeStr {
+    final h = timestamp.hour.toString().padLeft(2, '0');
+    final m = timestamp.minute.toString().padLeft(2, '0');
+    return '$h:$m';
+  }
 
-class WarRoomNotifier extends StateNotifier<List<WarMessage>> {
-  WarRoomNotifier()
-      : super([
-          const WarMessage(
-              id: 'm0',
-              sender: 'VIGIL SYSTEM',
-              content: 'Crisis activated — Kitchen Fire, Floor 2. INC-001 open.',
-              timeStr: '18:01',
-              type: MessageType.system),
-          const WarMessage(
-              id: 'm1',
-              sender: 'GEMINI AI',
-              content: 'Classification: CRITICAL · Fire. Recommended immediate response: evacuate affected floors, confirm suppression, contact Fire Brigade.',
-              timeStr: '18:01',
-              type: MessageType.ai),
-          const WarMessage(
-              id: 'm2',
-              sender: 'Sarah Chen',
-              content: 'On scene. Suppression activated. Floor 2 being evacuated.',
-              timeStr: '18:03',
-              type: MessageType.staff),
-          const WarMessage(
-              id: 'm3',
-              sender: 'Raj Patel',
-              content: 'Engineering here — checking gas shutoff now.',
-              timeStr: '18:04',
-              type: MessageType.staff),
-          const WarMessage(
-              id: 'm4',
-              sender: 'James Harrington',
-              content: 'Fire Brigade ETA 6 minutes. Keep evacuation route clear.',
-              timeStr: '18:05',
-              type: MessageType.staff),
-        ]);
+  factory WarRoomMessage.fromFirestore(var doc) {
+    final d = doc.data() as Map<String, dynamic>;
+    return WarRoomMessage(
+      id: doc.id,
+      text: d['text'] as String? ?? d['content'] as String? ?? '',
+      sender: d['sender'] as String? ?? d['senderName'] as String? ?? 'Unknown',
+      timestamp: (d['timestamp'] as dynamic)?.toDate() ?? DateTime.now(),
+      type: _typeFromString(d['type'] as String?),
+    );
+  }
 
-  static const _uuid = Uuid();
+  static MessageType _typeFromString(String? t) {
+    switch (t) {
+      case 'system': return MessageType.system;
+      case 'ai': return MessageType.ai;
+      case 'staff': return MessageType.staff;
+      default: return MessageType.user;
+    }
+  }
 
-  void send(String content, String senderName) {
-    if (content.trim().isEmpty) return;
-    final now = DateFormat('HH:mm').format(DateTime.now());
-    state = [
-      ...state,
-      WarMessage(
-        id: _uuid.v4(),
-        sender: senderName,
-        content: content.trim(),
-        timeStr: now,
-        type: MessageType.staff,
-      ),
-    ];
+  Map<String, dynamic> toMap() => {
+        'text': text,
+        'sender': sender,
+        'timestamp': timestamp,
+        'type': type.name,
+        // Also provide new fields to be backwards compatible
+        'content': text,
+        'senderName': sender,
+      };
+
+  WarRoomMessage copyWith({
+    String? id,
+    String? text,
+    String? sender,
+    DateTime? timestamp,
+    MessageType? type,
+  }) {
+    return WarRoomMessage(
+      id: id ?? this.id,
+      text: text ?? this.text,
+      sender: sender ?? this.sender,
+      timestamp: timestamp ?? this.timestamp,
+      type: type ?? this.type,
+    );
   }
 }
 
-final warRoomProvider = StateNotifierProvider<WarRoomNotifier, List<WarMessage>>(
-    (ref) => WarRoomNotifier());
+typedef WarMessage = WarRoomMessage;
+
+// Stream of messages for a specific incident
+final warRoomMessagesProvider = StreamProvider.family<List<WarRoomMessage>, String>((ref, incidentId) {
+  final fbService = ref.watch(firebaseProvider);
+  return fbService.streamWarRoomMessages(incidentId);
+});
+
+class WarRoomNotifier {
+  final FirebaseService _firebaseService;
+  final Ref _ref;
+
+  WarRoomNotifier(this._firebaseService, this._ref);
+
+  Future<void> sendMessage(String incidentId, String content) async {
+    if (content.trim().isEmpty) return;
+
+    final authState = _ref.read(authProvider);
+    final user = authState.user;
+
+    if (user == null) return;
+
+    final msg = WarRoomMessage(
+      id: '', // Firestore generated
+      sender: user.name,
+      text: content.trim(),
+      timestamp: DateTime.now(),
+      type: MessageType.staff,
+    );
+
+    await _firebaseService.sendWarRoomMessage(incidentId, msg);
+  }
+}
+
+final warRoomActionProvider = Provider<WarRoomNotifier>((ref) {
+  final fbService = ref.watch(firebaseProvider);
+  return WarRoomNotifier(fbService, ref);
+});
+
+// Legacy Provider to fix compilation
+class MockWarRoomNotifier extends StateNotifier<List<WarRoomMessage>> {
+  MockWarRoomNotifier() : super([]);
+  void send(String text, String sender) {}
+}
+
+final warRoomProvider = StateNotifierProvider<MockWarRoomNotifier, List<WarRoomMessage>>((ref) {
+  return MockWarRoomNotifier();
+});

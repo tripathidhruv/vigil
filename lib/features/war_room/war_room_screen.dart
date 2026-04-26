@@ -9,7 +9,8 @@ import '../../core/widgets/vigil_bottom_nav.dart';
 import 'war_room_provider.dart';
 
 class WarRoomScreen extends ConsumerStatefulWidget {
-  const WarRoomScreen({super.key});
+  final String incidentId;
+  const WarRoomScreen({super.key, required this.incidentId});
   @override
   ConsumerState<WarRoomScreen> createState() => _WarRoomScreenState();
 }
@@ -27,7 +28,7 @@ class _WarRoomScreenState extends ConsumerState<WarRoomScreen> {
 
   void _send() {
     if (_ctrl.text.trim().isEmpty) return;
-    ref.read(warRoomProvider.notifier).send(_ctrl.text, 'James Harrington');
+    ref.read(warRoomActionProvider).sendMessage(widget.incidentId, _ctrl.text);
     _ctrl.clear();
     Future.delayed(const Duration(milliseconds: 100), () {
       if (_scroll.hasClients) {
@@ -40,7 +41,7 @@ class _WarRoomScreenState extends ConsumerState<WarRoomScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final messages = ref.watch(warRoomProvider);
+    final messagesAsync = ref.watch(warRoomMessagesProvider(widget.incidentId));
 
     return Scaffold(
       bottomNavigationBar: VigilBottomNav(
@@ -83,7 +84,7 @@ class _WarRoomScreenState extends ConsumerState<WarRoomScreen> {
                             fontSize: 17,
                             fontWeight: FontWeight.w700,
                             color: AppColors.textPrimary)),
-                    Text('INC-001 · Kitchen Fire',
+                    Text('INC-${widget.incidentId}',
                         style: AppTypography.bodySmall
                             .copyWith(color: AppColors.crisisRed)),
                   ]),
@@ -158,11 +159,15 @@ class _WarRoomScreenState extends ConsumerState<WarRoomScreen> {
 
             // Messages
             Expanded(
-              child: ListView.builder(
-                controller: _scroll,
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
-                itemCount: messages.length,
-                itemBuilder: (_, i) => _Bubble(msg: messages[i]),
+              child: messagesAsync.when(
+                data: (messages) => ListView.builder(
+                  controller: _scroll,
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
+                  itemCount: messages.length,
+                  itemBuilder: (_, i) => _Bubble(msg: messages[i]),
+                ),
+                loading: () => const Center(child: CircularProgressIndicator(color: AppColors.crisisRed)),
+                error: (e, _) => Center(child: Text('Error loading messages: $e', style: const TextStyle(color: Colors.red))),
               ),
             ),
 
@@ -227,6 +232,12 @@ class _WarRoomScreenState extends ConsumerState<WarRoomScreen> {
         context.go('/notifications');
       case VigilTab.profile:
         context.go('/profile');
+      case VigilTab.myTasks:
+        context.go('/staff-home');
+      case VigilTab.guestHome:
+        context.go('/guest-home');
+      default:
+        break;
     }
   }
 }
@@ -234,7 +245,7 @@ class _WarRoomScreenState extends ConsumerState<WarRoomScreen> {
 // ── Bubble ────────────────────────────────────────────────────────────────────
 
 class _Bubble extends StatelessWidget {
-  final WarMessage msg;
+  final WarRoomMessage msg;
   const _Bubble({required this.msg});
 
   @override
@@ -300,7 +311,7 @@ class _Bubble extends StatelessWidget {
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Padding(
           padding: const EdgeInsets.only(left: 4, bottom: 4),
-          child: Text(msg.sender,
+          child: Text(msg.senderName,
               style: AppTypography.bodySmall
                   .copyWith(fontWeight: FontWeight.w600)),
         ),

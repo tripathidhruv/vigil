@@ -11,6 +11,7 @@ import '../../core/widgets/glass_card.dart';
 import '../../core/widgets/incident_card.dart';
 import '../../core/widgets/staff_chip.dart';
 import '../../core/widgets/vigil_bottom_nav.dart';
+import '../notifications/notifications_provider.dart';
 import 'dashboard_provider.dart';
 
 class ManagerDashboardScreen extends ConsumerWidget {
@@ -26,11 +27,11 @@ class ManagerDashboardScreen extends ConsumerWidget {
     return Scaffold(
       bottomNavigationBar: VigilBottomNav(
         current: VigilTab.dashboard,
-        hasCrisisActive: stats.hasCrisis,
+        hasCrisisActive: stats.valueOrNull?.hasCrisis ?? false,
         onTabSelected: (tab) => _navTo(context, tab),
       ),
       body: AuroraBackground(
-        blobColors: stats.hasCrisis
+        blobColors: (stats.valueOrNull?.hasCrisis ?? false)
             ? [
                 AppColors.crisisRed.withOpacity(0.10),
                 AppColors.intelViolet.withOpacity(0.06),
@@ -85,18 +86,25 @@ class ManagerDashboardScreen extends ConsumerWidget {
                           border:
                               Border.all(color: AppColors.borderDefault),
                         ),
-                        child: Stack(alignment: Alignment.center, children: [
-                          const Icon(Icons.notifications_outlined, size: 20),
-                          Positioned(
-                            top: 8, right: 8,
-                            child: Container(
-                              width: 7, height: 7,
-                              decoration: const BoxDecoration(
-                                  color: AppColors.crisisRed,
-                                  shape: BoxShape.circle),
-                            ),
-                          ),
-                        ]),
+                        child: Consumer(
+                          builder: (context, ref, child) {
+                            final unreadCount = ref.watch(unreadNotificationsCountProvider);
+                            final hasUnread = unreadCount > 0;
+                            return Stack(alignment: Alignment.center, children: [
+                              const Icon(Icons.notifications_outlined, size: 20),
+                              if (hasUnread)
+                                Positioned(
+                                  top: 8, right: 8,
+                                  child: Container(
+                                    width: 7, height: 7,
+                                    decoration: const BoxDecoration(
+                                        color: AppColors.crisisRed,
+                                        shape: BoxShape.circle),
+                                  ),
+                                ),
+                            ]);
+                          },
+                        ),
                       ),
                     ),
                   ],
@@ -113,11 +121,16 @@ class ManagerDashboardScreen extends ConsumerWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       // Crisis banner
-                      if (stats.hasCrisis)
+                      if (stats.valueOrNull?.hasCrisis ?? false)
                         SlideUpReveal(
                           delay: const Duration(milliseconds: 40),
                           child: GestureDetector(
-                            onTap: () => context.go('/crisis-command'),
+                            onTap: () {
+                              final activeIncident = incidents.valueOrNull?.firstWhere((i) => i.isActive);
+                              if (activeIncident != null) {
+                                context.go('/crisis-command/${activeIncident.id}');
+                              }
+                            },
                             child: GlassCard(
                               borderColor: AppColors.glassRedBorder,
                               glowColor: AppColors.crisisRed,
@@ -149,7 +162,7 @@ class ManagerDashboardScreen extends ConsumerWidget {
                                             )),
                                         const SizedBox(height: 2),
                                         Text(
-                                            'Kitchen fire · 4 staff assigned',
+                                            '${incidents.valueOrNull?.firstWhere((i) => i.isActive).type ?? "Emergency"} · ${incidents.valueOrNull?.firstWhere((i) => i.isActive).assignedTo.length ?? 0} staff assigned',
                                             style: AppTypography.bodySmall),
                                       ]),
                                 ),
@@ -159,23 +172,23 @@ class ManagerDashboardScreen extends ConsumerWidget {
                             ),
                           ),
                         ),
-                      if (stats.hasCrisis) const SizedBox(height: 14),
+                      if (stats.valueOrNull?.hasCrisis ?? false) const SizedBox(height: 14),
 
                       // Stats row
                       SlideUpReveal(
                         delay: const Duration(milliseconds: 80),
                         child: Row(
                           children: [
-                            _Stat('ACTIVE', stats.activeIncidents,
+                            _Stat('ACTIVE', stats.valueOrNull?.activeIncidents ?? 0,
                                 AppColors.crisisRed, Icons.warning_amber_rounded),
                             const SizedBox(width: 10),
-                            _Stat('ON DUTY', stats.staffOnDuty,
+                            _Stat('ON DUTY', stats.valueOrNull?.staffOnDuty ?? 0,
                                 AppColors.statusTeal, Icons.people_outline),
                             const SizedBox(width: 10),
-                            _Stat('RESOLVED', stats.resolvedToday,
+                            _Stat('RESOLVED', stats.valueOrNull?.resolvedToday ?? 0,
                                 AppColors.safeGreen, Icons.check_circle_outline),
                             const SizedBox(width: 10),
-                            _Stat('AVG MIN', stats.avgResponseMin,
+                            _Stat('AVG MIN', stats.valueOrNull?.avgResponseMin ?? 0,
                                 AppColors.commandBlue, Icons.timer_outlined),
                           ],
                         ),
@@ -192,7 +205,14 @@ class ManagerDashboardScreen extends ConsumerWidget {
                           const SizedBox(width: 10),
                           _Action('War\nRoom', Icons.crisis_alert,
                               AppColors.warningAmber,
-                              () => context.go('/war-room')),
+                              () {
+                                final activeIncident = incidents.valueOrNull?.firstWhere((i) => i.isActive);
+                                if (activeIncident != null) {
+                                  context.go('/war-room/${activeIncident.id}');
+                                } else {
+                                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No active crisis')));
+                                }
+                              }),
                           const SizedBox(width: 10),
                           _Action('Floor\nMap', Icons.map_outlined,
                               AppColors.statusTeal,
@@ -222,18 +242,25 @@ class ManagerDashboardScreen extends ConsumerWidget {
                         ]),
                       ),
                       const SizedBox(height: 8),
-                      ...incidents.asMap().entries.map((e) => Padding(
-                            padding: const EdgeInsets.only(bottom: 10),
-                            child: SlideUpReveal(
-                              delay: Duration(
-                                  milliseconds: 200 + e.key * 60),
-                              child: IncidentCard(
-                                incident: e.value,
-                                onTap: () =>
-                                    context.go('/crisis-command'),
+                      incidents.when(
+                        data: (list) => list.isEmpty 
+                            ? const Text('No active incidents', style: TextStyle(color: AppColors.textMuted))
+                            : Column(
+                                children: list.map((e) => Padding(
+                                  padding: const EdgeInsets.only(bottom: 10),
+                                  child: SlideUpReveal(
+                                    delay: const Duration(milliseconds: 200),
+                                    child: IncidentCard(
+                                      incident: e,
+                                      onTap: () =>
+                                          context.go('/crisis-command/${e.id}'),
+                                    ),
+                                  ),
+                                )).toList(),
                               ),
-                            ),
-                          )),
+                        loading: () => const Center(child: CircularProgressIndicator(color: AppColors.crisisRed)),
+                        error: (e, _) => Text('Error loading incidents: $e', style: const TextStyle(color: Colors.red)),
+                      ),
                       const SizedBox(height: 22),
 
                       // Staff
@@ -244,20 +271,24 @@ class ManagerDashboardScreen extends ConsumerWidget {
                       const SizedBox(height: 10),
                       SlideUpReveal(
                         delay: const Duration(milliseconds: 420),
-                        child: SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: Row(
-                            children: staff
-                                .map((s) => Padding(
-                                      padding:
-                                          const EdgeInsets.only(right: 10),
-                                      child: StaffChip(
-                                          name: s.name,
-                                          role: s.role,
-                                          status: s.status),
-                                    ))
-                                .toList(),
+                        child: staff.when(
+                          data: (list) => SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: Row(
+                              children: list
+                                  .map((s) => Padding(
+                                        padding:
+                                            const EdgeInsets.only(right: 10),
+                                        child: StaffChip(
+                                            name: s.name,
+                                            role: s.role,
+                                            status: s.onDuty ? StaffStatus.available : StaffStatus.offDuty),
+                                      ))
+                                  .toList(),
+                            ),
                           ),
+                          loading: () => const CircularProgressIndicator(color: AppColors.statusTeal),
+                          error: (e, _) => const Text('Failed to load staff'),
                         ),
                       ),
                       const SizedBox(height: 22),
@@ -330,6 +361,12 @@ class ManagerDashboardScreen extends ConsumerWidget {
         context.go('/notifications');
       case VigilTab.profile:
         context.go('/profile');
+      case VigilTab.myTasks:
+        context.go('/staff-home');
+      case VigilTab.guestHome:
+        context.go('/guest-home');
+      default:
+        break;
     }
   }
 }

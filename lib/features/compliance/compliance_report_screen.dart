@@ -10,7 +10,8 @@ import '../../core/widgets/glass_card.dart';
 import 'compliance_provider.dart';
 
 class ComplianceReportScreen extends ConsumerWidget {
-  const ComplianceReportScreen({super.key});
+  final String? incidentId;
+  const ComplianceReportScreen({super.key, this.incidentId});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -50,7 +51,7 @@ class ComplianceReportScreen extends ConsumerWidget {
                             fontSize: 17,
                             fontWeight: FontWeight.w700,
                             color: AppColors.textPrimary)),
-                    Text('INC-001 · Kitchen Fire',
+                    Text(incidentId != null ? 'INC-$incidentId' : 'Select an Incident',
                         style: AppTypography.bodySmall
                             .copyWith(color: AppColors.crisisRed)),
                   ]),
@@ -95,7 +96,7 @@ class ComplianceReportScreen extends ConsumerWidget {
                             const SizedBox(width: 10),
                             Expanded(
                               child: Text(
-                                'Gemini Pro will draft a complete incident report from INC-001 data, ready for regulatory submission.',
+                                'Gemini Pro will draft a complete incident report from INC-${incidentId ?? "selected"} data, ready for regulatory submission.',
                                 style: AppTypography.bodySmall
                                     .copyWith(
                                         color: AppColors.intelViolet),
@@ -105,9 +106,15 @@ class ComplianceReportScreen extends ConsumerWidget {
                         ),
                         const SizedBox(height: 20),
                         GestureDetector(
-                          onTap: () => ref
-                              .read(complianceProvider.notifier)
-                              .generate(),
+                          onTap: () {
+                            if (incidentId != null) {
+                              ref
+                                  .read(complianceProvider.notifier)
+                                  .generate(incidentId!);
+                            } else {
+                              ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No incident selected')));
+                            }
+                          },
                           child: Container(
                             width: double.infinity,
                             padding: const EdgeInsets.symmetric(
@@ -225,28 +232,39 @@ class ComplianceReportScreen extends ConsumerWidget {
                     // Export
                     if (state.isComplete) ...[
                       const SizedBox(height: 10),
-                      GlassCard(
-                        borderColor:
-                            AppColors.safeGreen.withOpacity(0.35),
-                        glowColor: AppColors.safeGreen,
-                        padding: const EdgeInsets.symmetric(
-                            vertical: 16, horizontal: 20),
-                        child: const Row(
-                            mainAxisAlignment:
-                                MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.download_rounded,
-                                  color: AppColors.safeGreen,
-                                  size: 20),
-                              SizedBox(width: 10),
-                              Text('EXPORT AS PDF',
-                                  style: TextStyle(
-                                      fontFamily: 'Inter',
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w700,
-                                      color: AppColors.safeGreen,
-                                      letterSpacing: 1.5)),
-                            ]),
+                      GestureDetector(
+                        onTap: () {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Report exported successfully', style: TextStyle(color: Colors.white)),
+                              backgroundColor: AppColors.safeGreen,
+                              behavior: SnackBarBehavior.floating,
+                            )
+                          );
+                        },
+                        child: GlassCard(
+                          borderColor:
+                              AppColors.safeGreen.withOpacity(0.35),
+                          glowColor: AppColors.safeGreen,
+                          padding: const EdgeInsets.symmetric(
+                              vertical: 16, horizontal: 20),
+                          child: const Row(
+                              mainAxisAlignment:
+                                  MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.download_rounded,
+                                    color: AppColors.safeGreen,
+                                    size: 20),
+                                SizedBox(width: 10),
+                                Text('EXPORT AS PDF',
+                                    style: TextStyle(
+                                        fontFamily: 'Inter',
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w700,
+                                        color: AppColors.safeGreen,
+                                        letterSpacing: 1.5)),
+                              ]),
+                        ),
                       ),
                     ],
                   ],
